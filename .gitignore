@@ -1,0 +1,14 @@
+# Build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+
+# Local machine paths (never commit)
+GamePaths.props
+
+# Never commit game or interop assemblies
+*.dll
+*.pdb

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>MeowcowMirror</AssemblyName>
+    <RootNamespace>MeowcowMirror</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MeowcowCore\MeowcowCore.csproj" Private="false" />
+  </ItemGroup>
+</Project>

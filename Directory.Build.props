@@ -1,0 +1,32 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)GamePaths.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)GamePaths.props')" />
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <MLDir>$(GameDir)\MelonLoader</MLDir>
+    <Il2CppAssembliesDir>$(MLDir)\Il2CppAssemblies</Il2CppAssembliesDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="$(MLDir)\net6\MelonLoader.dll" Private="false" />
+    <Reference Include="$(MLDir)\net6\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="$(MLDir)\net6\0Harmony.dll" Private="false" />
+    <!-- All generated interop assemblies; trim later if it gets slow. -->
+    <Reference Include="$(Il2CppAssembliesDir)\*.dll" Private="false" />
+  </ItemGroup>
+
+  <Target Name="MeowcowCheckGameDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(GameDir)' == '' Or !Exists('$(Il2CppAssembliesDir)')"
+           Text="GameDir not set or MelonLoader not generated. Copy GamePaths.props.example to GamePaths.props, set GameDir, and run the game once with MelonLoader." />
+  </Target>
+
+  <Target Name="MeowcowCopyToGame" AfterTargets="Build" Condition="'$(CopyToGame)' == 'true'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\Mods" />
+  </Target>
+</Project>
