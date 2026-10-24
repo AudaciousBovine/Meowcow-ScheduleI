@@ -23,7 +23,6 @@ namespace MeowcowMirror.Layout
     /// </summary>
     public static class VanillaOptions
     {
-        public const string Done = "vanilla.done";
         public const string FinalizeTab = "finalize";
 
         public static readonly VanillaOption[] All =
@@ -54,17 +53,18 @@ namespace MeowcowMirror.Layout
             new VanillaOption("vanilla.bottom",                "clothing", "Bottom"),
             new VanillaOption("vanilla.shoes",                 "clothing", "Shoes"),
 
+            // Captured so they can be parked; the frame's footer replaces the Finalize tab.
             new VanillaOption("vanilla.finalizeText",          FinalizeTab, "Text (TMP)"),
-            new VanillaOption(Done,                            FinalizeTab, "Done"),
+            new VanillaOption("vanilla.done",                  FinalizeTab, "Done"),
         };
 
         private static readonly (string id, string name)[] TabOrder =
         {
-            ("body", "Body"), ("hair", "Hair"), ("face", "Face"), ("eyes", "Eyes"),
-            ("eyebrows", "Eyebrows"), ("clothing", "Clothing"), (FinalizeTab, "Finalize"),
+            ("body", "Body"), ("hair", "Hair"), ("face", "Face"),
+            ("eyes", "Eyes"), ("eyebrows", "Eyebrows"), ("clothing", "Clothing"),
         };
 
-        /// <summary>The vanilla layout, rebuilt from the table above. Should look identical to the game.</summary>
+        /// <summary>The vanilla tabs and options, minus Finalize (the footer has Done now).</summary>
         public static LayoutDefinition CreateVanillaLayout()
         {
             var layout = new LayoutDefinition();
@@ -78,9 +78,6 @@ namespace MeowcowMirror.Layout
             return layout;
         }
 
-        public static TabDefinition CreateFinalizeTab() =>
-            new TabDefinition(FinalizeTab, "Finalize", "vanilla.finalizeText", Done);
-
         /// <summary>Test layout: a new custom tab, eyebrows merged into Eyes, clothing removed.</summary>
         public static LayoutDefinition CreateTestLayout() => new LayoutDefinition
         {
@@ -93,7 +90,6 @@ namespace MeowcowMirror.Layout
                 new TabDefinition("eyes", "Eyes & Brows",
                     "vanilla.eyeballColor", "vanilla.pupilDilation", "vanilla.upperEyelid", "vanilla.lowerEyelid",
                     "vanilla.eyebrowScale", "vanilla.eyebrowThickness", "vanilla.eyebrowHeight", "vanilla.eyebrowAngle"),
-                CreateFinalizeTab(),
             }
         };
     }

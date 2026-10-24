@@ -2,6 +2,15 @@ using System.Collections.Generic;
 
 namespace MeowcowMirror.Layout
 {
+    /// <summary>What the footer's Done button does.</summary>
+    public enum CommitMode
+    {
+        /// <summary>Runs vanilla CharacterCreator.Done() (the intro). No Cancel button.</summary>
+        Vanilla,
+        /// <summary>Mirror applies the appearance, closes the creator and restores the camera. Cancel is shown.</summary>
+        Mirror,
+    }
+
     /// <summary>One tab in the creator: a stable ID, a display name, and the option IDs it shows, in order.</summary>
     public sealed class TabDefinition
     {
@@ -21,9 +30,10 @@ namespace MeowcowMirror.Layout
         public TabDefinition Copy() => new TabDefinition(Id, Name, Options.ToArray());
     }
 
-    /// <summary>A full creator layout: tabs in display order. Finalize is always forced last.</summary>
+    /// <summary>A full creator layout: tabs in display order, plus how Done behaves.</summary>
     public sealed class LayoutDefinition
     {
         public List<TabDefinition> Tabs { get; set; } = new List<TabDefinition>();
+        public CommitMode CommitMode { get; set; } = CommitMode.Mirror;
     }
 }

@@ -3,6 +3,7 @@ using UnityEngine;
 using MeowcowMirror.Layout;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Avatar;
+using Il2CppScheduleOne.Avatar.Tools;
 using Creator = Il2CppScheduleOne.CharacterCreator.CharacterCreator;
 
 [assembly: MelonInfo(typeof(MeowcowMirror.MirrorMod), "MeowcowMirror", "0.0.1", "Evelyna")]
@@ -50,10 +51,36 @@ namespace MeowcowMirror
         {
             var creator = Object.FindObjectOfType<Creator>(true);
             if (creator == null) { Log.Warning("CharacterCreator not found"); return; }
-            if (creator.IsOpen) { Log.Msg("Creator already open"); return; }
+            var container = creator._container.gameObject;
+
+            if (creator.IsOpen)
+            {
+                if (container.activeSelf) { Log.Msg("Creator already open"); return; }
+
+                // Open but hidden: a reopen raced vanilla's close timer. Recover.
+                Log.Warning("Creator stuck open but hidden; recovering");
+                creator.Close();
+                MirrorFrame.RestoreCamera();
+                return;
+            }
+
+            if (container.activeSelf) { Log.Msg("Creator still closing; try again in a moment"); return; }
             creator.Open();
-            MirrorSession.Active = true;
+            SeedFromPlayer(creator);
+            CreatorLayoutBuilder.Apply(VanillaOptions.CreateVanillaLayout());
             Log.Msg("Creator opened");
+        }
+
+        /// <summary>Vanilla opens on a default preset; edit sessions start from the player's current look.</summary>
+        private static void SeedFromPlayer(Creator creator)
+        {
+            var current = Player.Local?.CurrentAppearance;
+            var state = creator._currentState;
+            if (current == null || state == null) { Log.Warning("Couldn't seed creator from player"); return; }
+
+            state.Appearance = current.Clone();
+            creator.ApplyNakedAppearance();
+            CreatorLayoutBuilder.FindInterface()?.SetInputsToAppearance(state);
         }
 
         private void DumpLibrary()
@@ -109,7 +136,12 @@ namespace MeowcowMirror
                 var w = windows[i];
                 Log.Msg($"[{i}] {w.Name} ({w.Container.name})");
                 for (int c = 0; c < w.Container.childCount; c++)
-                    Log.Msg($"    {w.Container.GetChild(c).name}");
+                {
+                    var child = w.Container.GetChild(c);
+                    Log.Msg($"    {child.name}");
+                    for (int g = 0; g < child.childCount; g++)
+                        if (child.name.StartsWith("MirrorColumn")) Log.Msg($"        {child.GetChild(g).name}");
+                }
             }
         }
     }
