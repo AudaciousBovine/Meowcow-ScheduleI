@@ -1,0 +1,30 @@
+using System.Linq;
+using MeowcowMirror.Layout;
+
+namespace MeowcowMirror.Contexts
+{
+    /// <summary>
+    /// Turns the shared layout into what one context shows: options not in the context are dropped,
+    /// and tabs left empty are dropped with them.
+    /// </summary>
+    public static class ContextFilter
+    {
+        public static LayoutDefinition Filter(LayoutDefinition layout, ContextDefinition context)
+        {
+            var result = new LayoutDefinition
+            {
+                CommitMode = context.Id == MirrorContexts.Create ? CommitMode.Vanilla : CommitMode.Mirror,
+                CommitLabel = context.CommitLabel,
+            };
+
+            foreach (var tab in layout.Tabs)
+            {
+                var visible = tab.Options.Where(id => OptionContexts.IsIn(id, context.Id)).ToArray();
+                if (visible.Length > 0)
+                    result.Tabs.Add(new TabDefinition(tab.Id, tab.Name, visible));
+            }
+
+            return result;
+        }
+    }
+}

@@ -1,19 +1,25 @@
 using System.Collections.Generic;
+using C = MeowcowMirror.Contexts.MirrorContexts; // C.Barber etc.; plain 'Mirror' would mean the API class
 
 namespace MeowcowMirror.Layout
 {
-    /// <summary>A vanilla creator row: our stable ID, the vanilla tab it starts in, and its GameObject name.</summary>
+    /// <summary>
+    /// A vanilla creator row: our stable ID, the vanilla tab it starts in, its GameObject name, and
+    /// the contexts it appears in by default (see docs/contexts.md, section 3).
+    /// </summary>
     public readonly struct VanillaOption
     {
         public readonly string Id;
         public readonly string TabId;
         public readonly string RowName;
+        public readonly string[] Contexts;
 
-        public VanillaOption(string id, string tabId, string rowName)
+        public VanillaOption(string id, string tabId, string rowName, params string[] contexts)
         {
             Id = id;
             TabId = tabId;
             RowName = rowName;
+            Contexts = contexts;
         }
     }
 
@@ -27,31 +33,31 @@ namespace MeowcowMirror.Layout
 
         public static readonly VanillaOption[] All =
         {
-            new VanillaOption("vanilla.gender",                "body",     "Gender"),
-            new VanillaOption("vanilla.weight",                "body",     "Weight"),
-            new VanillaOption("vanilla.skinColor",             "body",     "SkinColor"),
+            new VanillaOption("vanilla.gender",                "body",     "Gender", C.Create),
+            new VanillaOption("vanilla.weight",                "body",     "Weight", C.Create, C.Surgeon),
+            new VanillaOption("vanilla.skinColor",             "body",     "SkinColor", C.Create),
 
-            new VanillaOption("vanilla.hair",                  "hair",     "Hair"),
-            new VanillaOption("vanilla.hairColor",             "hair",     "Hair Color"),
+            new VanillaOption("vanilla.hair",                  "hair",     "Hair", C.Create, C.Barber),
+            new VanillaOption("vanilla.hairColor",             "hair",     "Hair Color", C.Create, C.Barber),
 
-            new VanillaOption("vanilla.face",                  "face",     "Face"),
-            new VanillaOption("vanilla.facialHair",            "face",     "Facial Hair"),
-            new VanillaOption("vanilla.facialDetails",         "face",     "Facial Details"),
-            new VanillaOption("vanilla.facialDetailIntensity", "face",     "Facial Detail Intensity"),
+            new VanillaOption("vanilla.face",                  "face",     "Face", C.Create, C.Mirror),
+            new VanillaOption("vanilla.facialHair",            "face",     "Facial Hair", C.Create, C.Barber, C.Mirror),
+            new VanillaOption("vanilla.facialDetails",         "face",     "Facial Details", C.Create, C.Surgeon),
+            new VanillaOption("vanilla.facialDetailIntensity", "face",     "Facial Detail Intensity", C.Create, C.Surgeon),
 
-            new VanillaOption("vanilla.eyeballColor",          "eyes",     "EyeballColor"),
-            new VanillaOption("vanilla.pupilDilation",         "eyes",     "PupilDilation"),
-            new VanillaOption("vanilla.upperEyelid",           "eyes",     "Upper Eyelid Position"),
-            new VanillaOption("vanilla.lowerEyelid",           "eyes",     "Lower Eyelid Position"),
+            new VanillaOption("vanilla.eyeballColor",          "eyes",     "EyeballColor", C.Create, C.Surgeon),
+            new VanillaOption("vanilla.pupilDilation",         "eyes",     "PupilDilation", C.Create, C.Mirror),
+            new VanillaOption("vanilla.upperEyelid",           "eyes",     "Upper Eyelid Position", C.Create, C.Mirror),
+            new VanillaOption("vanilla.lowerEyelid",           "eyes",     "Lower Eyelid Position", C.Create, C.Mirror),
 
-            new VanillaOption("vanilla.eyebrowScale",          "eyebrows", "EyebrowScale"),
-            new VanillaOption("vanilla.eyebrowThickness",      "eyebrows", "EyebrowThickness"),
-            new VanillaOption("vanilla.eyebrowHeight",         "eyebrows", "EyebrowRestingHeight"),
-            new VanillaOption("vanilla.eyebrowAngle",          "eyebrows", "EyebrowRestingAngle"),
+            new VanillaOption("vanilla.eyebrowScale",          "eyebrows", "EyebrowScale", C.Create, C.Barber, C.Mirror),
+            new VanillaOption("vanilla.eyebrowThickness",      "eyebrows", "EyebrowThickness", C.Create, C.Barber, C.Mirror),
+            new VanillaOption("vanilla.eyebrowHeight",         "eyebrows", "EyebrowRestingHeight", C.Create, C.Barber, C.Mirror),
+            new VanillaOption("vanilla.eyebrowAngle",          "eyebrows", "EyebrowRestingAngle", C.Create, C.Barber, C.Mirror),
 
-            new VanillaOption("vanilla.top",                   "clothing", "Top"),
-            new VanillaOption("vanilla.bottom",                "clothing", "Bottom"),
-            new VanillaOption("vanilla.shoes",                 "clothing", "Shoes"),
+            new VanillaOption("vanilla.top",                   "clothing", "Top", C.Create),
+            new VanillaOption("vanilla.bottom",                "clothing", "Bottom", C.Create),
+            new VanillaOption("vanilla.shoes",                 "clothing", "Shoes", C.Create),
 
             // Captured so they can be parked; the frame's footer replaces the Finalize tab.
             new VanillaOption("vanilla.finalizeText",          FinalizeTab, "Text (TMP)"),
@@ -77,29 +83,5 @@ namespace MeowcowMirror.Layout
             }
             return layout;
         }
-
-        /// <summary>Scroll test: every vanilla option on one tab.</summary>
-        public static LayoutDefinition CreateScrollTestLayout()
-        {
-            var tab = new TabDefinition("everything", "Everything");
-            foreach (var opt in All)
-                if (opt.TabId != FinalizeTab) tab.Options.Add(opt.Id);
-            return new LayoutDefinition { Tabs = new List<TabDefinition> { tab } };
-        }
-
-        /// <summary>Test layout: a new custom tab, eyebrows merged into Eyes, clothing removed.</summary>
-        public static LayoutDefinition CreateTestLayout() => new LayoutDefinition
-        {
-            Tabs = new List<TabDefinition>
-            {
-                new TabDefinition("body", "Body", "vanilla.gender", "vanilla.weight", "vanilla.skinColor"),
-                new TabDefinition("hair", "Hair", "vanilla.hair", "vanilla.hairColor"),
-                new TabDefinition("face", "Face", "vanilla.face", "vanilla.facialHair"),
-                new TabDefinition("details", "Details", "vanilla.facialDetails", "vanilla.facialDetailIntensity"),
-                new TabDefinition("eyes", "Eyes & Brows",
-                    "vanilla.eyeballColor", "vanilla.pupilDilation", "vanilla.upperEyelid", "vanilla.lowerEyelid",
-                    "vanilla.eyebrowScale", "vanilla.eyebrowThickness", "vanilla.eyebrowHeight", "vanilla.eyebrowAngle"),
-            }
-        };
     }
 }

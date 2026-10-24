@@ -35,5 +35,8 @@ namespace MeowcowMirror.Layout
     {
         public List<TabDefinition> Tabs { get; set; } = new List<TabDefinition>();
         public CommitMode CommitMode { get; set; } = CommitMode.Mirror;
+
+        /// <summary>Text on the commit button, from the context.</summary>
+        public string CommitLabel { get; set; } = "Done";
     }
 }

@@ -60,7 +60,7 @@ namespace MeowcowMirror.Layout
             Build(ui, contents);
         }
 
-        public static void SetTabs(IList<string> names, CommitMode mode)
+        public static void SetTabs(IList<string> names, CommitMode mode, string commitLabel)
         {
             _commitMode = mode;
             _tabCount = names.Count;
@@ -75,6 +75,7 @@ namespace MeowcowMirror.Layout
             }
 
             _cancel.gameObject.SetActive(mode == CommitMode.Mirror);
+            SetLabel(_done, string.IsNullOrWhiteSpace(commitLabel) ? "Done" : commitLabel);
         }
 
         /// <summary>The scroll view around the tab contents; vanilla panels use it to scroll to gamepad selections.</summary>
@@ -83,6 +84,10 @@ namespace MeowcowMirror.Layout
         public static void Select(int index)
         {
             if (_ui == null || index < 0 || index >= _tabCount) return;
+
+            // OpenWindow selects the tab's gamepad panel, which scrolls through our ScrollRect,
+            // so the scroll view must already point at this tab's contents.
+            _scroll.content = _ui._windows[index].Container;
             _ui.OpenWindow(index);
             SyncToWindow(index);
         }
@@ -388,6 +393,7 @@ namespace MeowcowMirror.Layout
 
             if (_commitMode == CommitMode.Vanilla)
             {
+                Mirror.EndSession();
                 creator.Done(); // the intro handles everything from here
                 return;
             }
@@ -400,6 +406,7 @@ namespace MeowcowMirror.Layout
                 MirrorMod.Log.Msg("Appearance applied");
             }
 
+            Mirror.EndSession();
             creator.Close();
             RestoreCamera();
         }
@@ -409,6 +416,7 @@ namespace MeowcowMirror.Layout
             var creator = UObject.FindObjectOfType<Creator>(true);
             if (creator == null) return;
 
+            Mirror.EndSession();
             creator.Close();
             RestoreCamera();
             MirrorMod.Log.Msg("Edit cancelled");

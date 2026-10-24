@@ -29,8 +29,11 @@ namespace MeowcowMirror.Layout
         private static Transform _parking;
 
         // Measured from the vanilla Body tab so rebuilt pages match the game's spacing.
-        private static float _padTop = 10f;
-        private static float _spacing = 10f;
+        // Fallbacks are the values measured from vanilla Body in earlier tests.
+        private const float DefaultPadTop = 6.5f;
+        private const float DefaultSpacing = 26.5f;
+        private static float _padTop = DefaultPadTop;
+        private static float _spacing = DefaultSpacing;
 
         private sealed class BuiltTab
         {
@@ -96,7 +99,7 @@ namespace MeowcowMirror.Layout
                 .ToArray();
             ui._windows = new Il2CppReferenceArray<CreatorUI.Window>(windows);
 
-            MirrorFrame.SetTabs(built.Select(b => b.Tab.Name).ToList(), layout.CommitMode);
+            MirrorFrame.SetTabs(built.Select(b => b.Tab.Name).ToList(), layout.CommitMode, layout.CommitLabel);
             MirrorFrame.Select(0);
 
             MirrorMod.Log.Msg($"Layout applied: {windows.Length} tabs, {placed.Count} options, {_rows.Count - placed.Count} hidden");
@@ -287,14 +290,32 @@ namespace MeowcowMirror.Layout
         /// <summary>Reads top padding and row spacing from the vanilla Body tab, using what the rows actually draw.</summary>
         private static void MeasureVanillaSpacing(RectTransform container)
         {
+            _padTop = DefaultPadTop;
+            _spacing = DefaultSpacing;
             if (container.childCount < 2) { MirrorMod.Log.Warning("Can't measure spacing; using defaults"); return; }
+
+            // Make sure the rows are laid out before reading them.
+            bool wasActive = container.gameObject.activeSelf;
+            container.gameObject.SetActive(true);
+            ForceLayout(container.GetChild(0));
+            ForceLayout(container.GetChild(1));
 
             var (top0, bottom0) = ContentBounds(container, container.GetChild(0));
             var (top1, _) = ContentBounds(container, container.GetChild(1));
+            container.gameObject.SetActive(wasActive);
 
-            _padTop = Mathf.Max(0f, container.rect.yMax - top0);
-            _spacing = Mathf.Max(0f, bottom0 - top1);
+            float padTop = container.rect.yMax - top0;
+            float spacing = bottom0 - top1;
 
+            // Vanilla is roughly 6.5 and 26.5; anything far off means the measurement failed.
+            if (padTop < 0f || padTop > 40f || spacing < 5f || spacing > 60f)
+            {
+                MirrorMod.Log.Warning($"Spacing measurement looks wrong (padTop={padTop:0.#}, spacing={spacing:0.#}); using defaults");
+                return;
+            }
+
+            _padTop = padTop;
+            _spacing = spacing;
             MirrorMod.Log.Msg($"Measured vanilla spacing: padTop={_padTop:0.#}, spacing={_spacing:0.#}");
         }
 
