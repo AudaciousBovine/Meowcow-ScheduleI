@@ -1,7 +1,9 @@
 using MelonLoader;
 using UnityEngine;
+using MeowcowMirror.Layout;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Avatar;
+using Creator = Il2CppScheduleOne.CharacterCreator.CharacterCreator;
 
 [assembly: MelonInfo(typeof(MeowcowMirror.MirrorMod), "MeowcowMirror", "0.0.1", "Evelyna")]
 [assembly: MelonGame("TVGS", "Schedule I")]
@@ -10,38 +12,56 @@ namespace MeowcowMirror
 {
     public class MirrorMod : MelonMod
     {
-        private MelonPreferences_Entry<string> _testId;
-        private MelonPreferences_Entry<KeyCode> _dumpKey, _addKey, _removeKey, _inspectKey;
-
         internal static MelonLogger.Instance Log;
-        
+
+        private MelonPreferences_Entry<string> _testId;
+        private MelonPreferences_Entry<KeyCode> _openKey, _vanillaLayoutKey, _testLayoutKey;
+        private MelonPreferences_Entry<KeyCode> _dumpKey, _addKey, _removeKey, _inspectKey, _layoutKey;
+
         public override void OnInitializeMelon()
         {
             Log = LoggerInstance;
-            // ...existing preference setup...
 
             var cat = MelonPreferences.CreateCategory("MeowcowMirror");
-            _testId     = cat.CreateEntry("TestObjectId", "", "Avatar object ID to add/remove (lowercase)");
-            _dumpKey    = cat.CreateEntry("DumpKey",    KeyCode.F7,  "Log every AvatarObjectLibrary key");
-            _addKey     = cat.CreateEntry("AddKey",     KeyCode.F8,  "Add TestObjectId to local appearance");
-            _removeKey  = cat.CreateEntry("RemoveKey",  KeyCode.F9,  "Remove TestObjectId from local appearance");
-            _inspectKey = cat.CreateEntry("InspectKey", KeyCode.F10, "Log extra avatar objects for every player");
+            _testId           = cat.CreateEntry("TestObjectId", "", "Avatar object ID to add/remove (exact ID as shown by F7)");
+            _openKey          = cat.CreateEntry("OpenCreatorKey",    KeyCode.F4,  "Open the character creator (testing)");
+            _vanillaLayoutKey = cat.CreateEntry("VanillaLayoutKey",  KeyCode.F5,  "Rebuild the creator with the vanilla layout");
+            _testLayoutKey    = cat.CreateEntry("TestLayoutKey",     KeyCode.F6,  "Rebuild the creator with the test layout");
+            _dumpKey          = cat.CreateEntry("DumpKey",           KeyCode.F7,  "Log every AvatarObjectLibrary key");
+            _addKey           = cat.CreateEntry("AddKey",            KeyCode.F8,  "Add TestObjectId to local appearance");
+            _removeKey        = cat.CreateEntry("RemoveKey",         KeyCode.F9,  "Remove TestObjectId from local appearance");
+            _inspectKey       = cat.CreateEntry("InspectKey",        KeyCode.F10, "Log extra avatar objects for every player");
+            _layoutKey        = cat.CreateEntry("LayoutDumpKey",     KeyCode.F11, "Log the character creator's windows");
         }
 
         public override void OnUpdate()
         {
-            if (Input.GetKeyDown(_dumpKey.Value))    DumpLibrary();
-            if (Input.GetKeyDown(_addKey.Value))     Add();
-            if (Input.GetKeyDown(_removeKey.Value))  Remove();
-            if (Input.GetKeyDown(_inspectKey.Value)) InspectAll();
+            if (Input.GetKeyDown(_openKey.Value))          OpenCreator();
+            if (Input.GetKeyDown(_vanillaLayoutKey.Value)) CreatorLayoutBuilder.Apply(VanillaOptions.CreateVanillaLayout());
+            if (Input.GetKeyDown(_testLayoutKey.Value))    CreatorLayoutBuilder.Apply(VanillaOptions.CreateTestLayout());
+            if (Input.GetKeyDown(_dumpKey.Value))          DumpLibrary();
+            if (Input.GetKeyDown(_addKey.Value))           Add();
+            if (Input.GetKeyDown(_removeKey.Value))        Remove();
+            if (Input.GetKeyDown(_inspectKey.Value))       InspectAll();
+            if (Input.GetKeyDown(_layoutKey.Value))        DumpCreatorLayout();
+        }
+
+        private void OpenCreator()
+        {
+            var creator = Object.FindObjectOfType<Creator>(true);
+            if (creator == null) { Log.Warning("CharacterCreator not found"); return; }
+            if (creator.IsOpen) { Log.Msg("Creator already open"); return; }
+            creator.Open();
+            MirrorSession.Active = true;
+            Log.Msg("Creator opened");
         }
 
         private void DumpLibrary()
         {
             var dict = AvatarObjectLibrary._avatarObjects;
-            if (dict == null) { LoggerInstance.Warning("_avatarObjects is null"); return; }
-            LoggerInstance.Msg($"AvatarObjectLibrary: {dict.Count} entries");
-            foreach (var kv in dict) LoggerInstance.Msg($"  {kv.Key}");
+            if (dict == null) { Log.Warning("_avatarObjects is null"); return; }
+            Log.Msg($"AvatarObjectLibrary: {dict.Count} entries");
+            foreach (var kv in dict) Log.Msg($"  {kv.Key}");
         }
 
         private void Add()
@@ -49,18 +69,18 @@ namespace MeowcowMirror
             string id = _testId.Value;
             if (!AppearanceService.TryGetSerialized(id, out var obj))
             {
-                LoggerInstance.Warning($"'{id}' not in AvatarObjectLibrary");
+                Log.Warning($"'{id}' not in AvatarObjectLibrary");
                 return;
             }
             if (AppearanceService.TryEditLocal(app => app.AddAvatarObject(obj)))
-                LoggerInstance.Msg($"Added '{id}'");
+                Log.Msg($"Added '{id}'");
         }
 
         private void Remove()
         {
-            string id = (_testId.Value ?? "").Trim().ToLowerInvariant();
+            string id = (_testId.Value ?? "").Trim();
             if (AppearanceService.TryEditLocal(app => app.RemoveAvatarObject(id)))
-                LoggerInstance.Msg($"Removed '{id}'");
+                Log.Msg($"Removed '{id}'");
         }
 
         private void InspectAll()
@@ -68,12 +88,28 @@ namespace MeowcowMirror
             foreach (var p in Player.PlayerList)
             {
                 var app = p?.CurrentAppearance;
-                if (app == null) { LoggerInstance.Msg($"{p?.PlayerName}: no appearance"); continue; }
+                if (app == null) { Log.Msg($"{p?.PlayerName}: no appearance"); continue; }
 
                 var extras = app.AdditionalAvatarObjects;
                 int n = extras == null ? 0 : extras.Length;
-                LoggerInstance.Msg($"{p.PlayerName} (local={p.IsLocalPlayer}): {n} extra objects");
-                for (int i = 0; i < n; i++) LoggerInstance.Msg($"  [{i}] {extras[i].Id}");
+                Log.Msg($"{p.PlayerName} (local={p.IsLocalPlayer}): {n} extra objects");
+                for (int i = 0; i < n; i++) Log.Msg($"  [{i}] {extras[i].Id}");
+            }
+        }
+
+        private void DumpCreatorLayout()
+        {
+            var ui = CreatorLayoutBuilder.FindInterface();
+            if (ui == null) { Log.Warning("CharacterCreatorInterface not found"); return; }
+
+            var windows = ui._windows;
+            Log.Msg($"Creator windows: {windows.Length}");
+            for (int i = 0; i < windows.Length; i++)
+            {
+                var w = windows[i];
+                Log.Msg($"[{i}] {w.Name} ({w.Container.name})");
+                for (int c = 0; c < w.Container.childCount; c++)
+                    Log.Msg($"    {w.Container.GetChild(c).name}");
             }
         }
     }
