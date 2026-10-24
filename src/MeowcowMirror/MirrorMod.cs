@@ -3,6 +3,7 @@ using UnityEngine;
 using MeowcowCore;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Avatar.Tools;
+using Il2CppScheduleOne.Avatar;
 
 [assembly: MelonInfo(typeof(MeowcowMirror.MirrorMod), "MeowcowMirror", "0.0.1", "Evelyna")]
 [assembly: MelonGame("TVGS", "Schedule I")]

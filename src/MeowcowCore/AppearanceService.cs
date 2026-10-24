@@ -3,6 +3,7 @@ using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Avatar.Player;
 using Il2CppScheduleOne.Avatar.Tools;
 using Il2CppScheduleOne.Core.Avatar;
+using Il2CppScheduleOne.Avatar;
 
 namespace MeowcowCore
 {
@@ -31,7 +32,7 @@ namespace MeowcowCore
             result = default;
             if (string.IsNullOrWhiteSpace(id)) return false;
 
-            if (!AvatarObjectLibrary.TryGetAvatarObjectById(id.Trim().ToLowerInvariant(), out AvatarObject obj))
+            if (!AvatarObjectLibrary.TryGetAvatarObjectById(id.Trim(), out AvatarObject obj))
                 return false;
 
             result = obj.Serialize();
