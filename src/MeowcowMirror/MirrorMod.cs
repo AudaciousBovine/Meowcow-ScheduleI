@@ -1,13 +1,10 @@
 using MelonLoader;
 using UnityEngine;
-using MeowcowCore;
 using Il2CppScheduleOne.PlayerScripts;
-using Il2CppScheduleOne.Avatar.Tools;
 using Il2CppScheduleOne.Avatar;
 
 [assembly: MelonInfo(typeof(MeowcowMirror.MirrorMod), "MeowcowMirror", "0.0.1", "Evelyna")]
 [assembly: MelonGame("TVGS", "Schedule I")]
-[assembly: MelonAdditionalDependencies("MeowcowCore")]
 
 namespace MeowcowMirror
 {
@@ -16,8 +13,13 @@ namespace MeowcowMirror
         private MelonPreferences_Entry<string> _testId;
         private MelonPreferences_Entry<KeyCode> _dumpKey, _addKey, _removeKey, _inspectKey;
 
+        internal static MelonLogger.Instance Log;
+        
         public override void OnInitializeMelon()
         {
+            Log = LoggerInstance;
+            // ...existing preference setup...
+
             var cat = MelonPreferences.CreateCategory("MeowcowMirror");
             _testId     = cat.CreateEntry("TestObjectId", "", "Avatar object ID to add/remove (lowercase)");
             _dumpKey    = cat.CreateEntry("DumpKey",    KeyCode.F7,  "Log every AvatarObjectLibrary key");
