@@ -78,6 +78,15 @@ namespace MeowcowMirror.Layout
             return layout;
         }
 
+        /// <summary>Scroll test: every vanilla option on one tab.</summary>
+        public static LayoutDefinition CreateScrollTestLayout()
+        {
+            var tab = new TabDefinition("everything", "Everything");
+            foreach (var opt in All)
+                if (opt.TabId != FinalizeTab) tab.Options.Add(opt.Id);
+            return new LayoutDefinition { Tabs = new List<TabDefinition> { tab } };
+        }
+
         /// <summary>Test layout: a new custom tab, eyebrows merged into Eyes, clothing removed.</summary>
         public static LayoutDefinition CreateTestLayout() => new LayoutDefinition
         {

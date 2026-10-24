@@ -1,5 +1,6 @@
 using MelonLoader;
 using UnityEngine;
+using System.Linq;
 using MeowcowMirror.Layout;
 using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.Avatar;
@@ -39,7 +40,7 @@ namespace MeowcowMirror
         {
             if (Input.GetKeyDown(_openKey.Value))          OpenCreator();
             if (Input.GetKeyDown(_vanillaLayoutKey.Value)) CreatorLayoutBuilder.Apply(VanillaOptions.CreateVanillaLayout());
-            if (Input.GetKeyDown(_testLayoutKey.Value))    CreatorLayoutBuilder.Apply(VanillaOptions.CreateTestLayout());
+            if (Input.GetKeyDown(_testLayoutKey.Value)) CreatorLayoutBuilder.Apply(VanillaOptions.CreateScrollTestLayout());
             if (Input.GetKeyDown(_dumpKey.Value))          DumpLibrary();
             if (Input.GetKeyDown(_addKey.Value))           Add();
             if (Input.GetKeyDown(_removeKey.Value))        Remove();
@@ -124,6 +125,17 @@ namespace MeowcowMirror
             }
         }
 
+        private void DumpTree(Transform t, int depth, int maxDepth)
+        {
+            for (int i = 0; i < t.childCount; i++)
+            {
+                var c = t.GetChild(i);
+                var types = string.Join(", ", c.GetComponents<Component>().Select(x => x.GetIl2CppType().Name));
+                Log.Msg($"{new string(' ', depth * 4)}{c.name} active={c.gameObject.activeSelf} [{types}]");
+                if (depth < maxDepth) DumpTree(c, depth + 1, maxDepth);
+            }
+        }
+
         private void DumpCreatorLayout()
         {
             var ui = CreatorLayoutBuilder.FindInterface();
@@ -142,6 +154,14 @@ namespace MeowcowMirror
                     for (int g = 0; g < child.childCount; g++)
                         if (child.name.StartsWith("MirrorColumn")) Log.Msg($"        {child.GetChild(g).name}");
                 }
+            }
+
+            Log.Msg("Topbar tree:");
+            DumpTree(ui._categoryLabel.transform.parent, 1, 3);
+            if (ui._cyclerController != null)
+            {
+                Log.Msg($"Cycler: {ui._cyclerController.name} (parent: {ui._cyclerController.transform.parent.name})");
+                DumpTree(ui._cyclerController.transform, 1, 2);
             }
         }
     }

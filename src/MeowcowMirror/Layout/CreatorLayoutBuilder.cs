@@ -56,7 +56,9 @@ namespace MeowcowMirror.Layout
             if (tabs.Count == 0) { MirrorMod.Log.Warning("Layout has no tabs"); return false; }
 
             // Resize the panel first: rows are positioned relative to their column, so sizes must be final.
-            MirrorFrame.EnsureBuilt(ui, _template.parent.GetComponent<RectTransform>());
+            var contents = _template.parent.GetComponent<RectTransform>();
+            MirrorFrame.EnsureBuilt(ui, contents);
+            float viewportHeight = contents.rect.height;
 
             HideAllContainers();
 
@@ -77,7 +79,9 @@ namespace MeowcowMirror.Layout
                     entry.Placed.Add(optionId);
                 }
 
-                PlaceInColumns(container, rows);
+                PrepareContainer(container, viewportHeight);
+                float used = PlaceInColumns(container, rows);
+                container.sizeDelta = new Vector2(0f, Mathf.Max(viewportHeight, used));
                 built.Add(entry);
             }
 
@@ -172,9 +176,17 @@ namespace MeowcowMirror.Layout
         /// Splits rows into left and right columns, keeping their order: the left column fills until it
         /// holds about half the total height, then the rest go right.
         /// </summary>
-        private static void PlaceInColumns(RectTransform container, List<Transform> rows)
+        private static float PlaceInColumns(RectTransform container, List<Transform> rows)
         {
             var (left, right) = GetColumns(container);
+
+            // Layout groups inside rows (option grids, swatches) only position their children while
+            // active, and a tab that was never opened has never been laid out. So: put every row in
+            // the left column of an active container, force a layout pass, then measure.
+            container.gameObject.SetActive(true);
+            foreach (var row in rows) MoveInto(row, left);
+            foreach (var row in rows) ForceLayout(row);
+
             var heights = rows.Select(RowHeight).ToList();
             float half = heights.Sum() / 2f;
 
@@ -190,11 +202,54 @@ namespace MeowcowMirror.Layout
                 used += heights[i];
             }
 
-            foreach (var row in leftRows) { row.SetParent(left, false); row.SetAsLastSibling(); }
-            foreach (var row in rightRows) { row.SetParent(right, false); row.SetAsLastSibling(); }
+            foreach (var row in leftRows) row.SetAsLastSibling();   // keep left order
+            foreach (var row in rightRows) MoveInto(row, right);
 
-            StackRows(left, leftRows);
-            StackRows(right, rightRows);
+            float height = Mathf.Max(StackRows(left, leftRows), StackRows(right, rightRows));
+            container.gameObject.SetActive(false); // Select() shows the right one
+            return height;
+        }
+
+        /// <summary>
+        /// Runs every layout group inside a row, innermost first. Forcing a rebuild on the row alone
+        /// isn't enough: Unity only walks into children of objects that have a layout component
+        /// themselves, and vanilla rows don't, so their option grids would stay unplaced.
+        /// </summary>
+        private static void ForceLayout(Transform row)
+        {
+            var groups = row.GetComponentsInChildren<LayoutGroup>(true).ToArray();
+            for (int i = groups.Length - 1; i >= 0; i--)
+                LayoutRebuilder.ForceRebuildLayoutImmediate(groups[i].GetComponent<RectTransform>());
+        }
+
+        /// <summary>
+        /// Scroll content: pinned to the top of the viewport and full width. Its height is set after
+        /// rows are placed, growing downward, so everything is measured from the top edge.
+        /// </summary>
+        private static void PrepareContainer(RectTransform container, float viewportHeight)
+        {
+            container.anchorMin = new Vector2(0f, 1f);
+            container.anchorMax = new Vector2(1f, 1f);
+            container.pivot = new Vector2(0.5f, 1f);
+            container.anchoredPosition = Vector2.zero;
+            container.sizeDelta = new Vector2(0f, viewportHeight);
+        }
+
+        /// <summary>
+        /// Re-parents a row and pins it to the top of its column, keeping its size, so later height
+        /// changes to the scroll content never shift it.
+        /// </summary>
+        private static void MoveInto(Transform row, RectTransform column)
+        {
+            row.SetParent(column, false);
+            row.SetAsLastSibling();
+
+            var rt = row.GetComponent<RectTransform>();
+            if (rt == null) return;
+            float height = rt.rect.height;
+            rt.anchorMin = new Vector2(rt.anchorMin.x, 1f);
+            rt.anchorMax = new Vector2(rt.anchorMax.x, 1f);
+            rt.sizeDelta = new Vector2(rt.sizeDelta.x, height);
         }
 
         private static (RectTransform left, RectTransform right) GetColumns(RectTransform container)
@@ -215,7 +270,7 @@ namespace MeowcowMirror.Layout
             rt.SetParent(container, false);
             rt.anchorMin = new Vector2(minX, 0f);
             rt.anchorMax = new Vector2(maxX, 1f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 1f); // top pivot: rows stay put when the content grows
             rt.offsetMin = Vector2.zero;
             rt.offsetMax = Vector2.zero;
             return rt;
@@ -243,10 +298,11 @@ namespace MeowcowMirror.Layout
             MirrorMod.Log.Msg($"Measured vanilla spacing: padTop={_padTop:0.#}, spacing={_spacing:0.#}");
         }
 
-        /// <summary>Stacks rows top to bottom by moving them, never resizing them.</summary>
-        private static void StackRows(RectTransform column, List<Transform> rows)
+        /// <summary>Stacks rows top to bottom by moving them, never resizing them. Returns the height used.</summary>
+        private static float StackRows(RectTransform column, List<Transform> rows)
         {
             float cursor = column.rect.yMax - _padTop;
+            bool any = false;
 
             foreach (var row in rows)
             {
@@ -259,7 +315,11 @@ namespace MeowcowMirror.Layout
                 row.localPosition = pos;
 
                 cursor = bottom + delta - _spacing;
+                any = true;
             }
+
+            // From the column's top to the last row's bottom, plus the same padding below as above.
+            return any ? column.rect.yMax - (cursor + _spacing) + _padTop : 0f;
         }
 
         /// <summary>Top and bottom of everything a row actually draws, in the given space.</summary>
@@ -317,6 +377,7 @@ namespace MeowcowMirror.Layout
             foreach (var b in built)
             {
                 if (b.Panel == null) continue;
+                b.Panel.scrollRect = MirrorFrame.Scroll; // gamepad selection scrolls into view
                 foreach (var id in b.Placed)
                     foreach (var s in _rowSelectables[id])
                         b.Panel.AddSelectable(s);
