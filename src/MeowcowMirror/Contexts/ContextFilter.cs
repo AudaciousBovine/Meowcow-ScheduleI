@@ -26,5 +26,12 @@ namespace MeowcowMirror.Contexts
 
             return result;
         }
+
+        /// <summary>True if the context would show at least one option.</summary>
+        public static bool HasOptions(string contextId)
+        {
+            if (!MirrorContexts.TryGet(contextId, out var context)) return false;
+            return Filter(VanillaOptions.CreateVanillaLayout(), context).Tabs.Count > 0;
+        }
     }
 }

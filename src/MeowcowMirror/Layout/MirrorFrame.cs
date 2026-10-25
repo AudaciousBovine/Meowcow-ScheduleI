@@ -399,6 +399,16 @@ namespace MeowcowMirror.Layout
             }
 
             var appearance = creator._currentState?.Appearance;
+
+            // On a vanilla shop, the shop's own Close() applies it and restores the camera.
+            if (ShopSession.Active)
+            {
+                Mirror.EndSession();
+                ShopSession.Finish(apply: true, appearance);
+                MirrorMod.Log.Msg("Appearance applied through the shop");
+                return;
+            }
+
             var player = Player.Local;
             if (appearance != null && player != null)
             {
@@ -413,6 +423,14 @@ namespace MeowcowMirror.Layout
 
         private static void OnCancel()
         {
+            if (ShopSession.Active)
+            {
+                Mirror.EndSession();
+                ShopSession.Finish(apply: false, null);
+                MirrorMod.Log.Msg("Shop visit cancelled");
+                return;
+            }
+
             var creator = UObject.FindObjectOfType<Creator>(true);
             if (creator == null) return;
 
