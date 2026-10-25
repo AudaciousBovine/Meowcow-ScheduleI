@@ -19,6 +19,8 @@ namespace MeowcowMirror
         private MelonPreferences_Entry<string> _testId;
         private MelonPreferences_Entry<KeyCode> _mirrorKey, _barberKey, _surgeonKey;
         private MelonPreferences_Entry<KeyCode> _dumpKey, _addKey, _removeKey, _inspectKey, _layoutKey;
+        private MelonPreferences_Entry<float> _dragSensitivity, _panSensitivity, _panLimit, _deadzone, _switchThreshold, _zoomStep, _maxZoom, _minZoom;
+        private MelonPreferences_Entry<bool> _dragInvert, _panInvert;
 
         public override void OnInitializeMelon()
         {
@@ -34,6 +36,16 @@ namespace MeowcowMirror
             _removeKey  = cat.CreateEntry("RemoveKey",      KeyCode.F9,  "Remove TestObjectId from local appearance");
             _inspectKey = cat.CreateEntry("InspectKey",     KeyCode.F10, "Log extra avatar objects for every player");
             _layoutKey  = cat.CreateEntry("LayoutDumpKey",  KeyCode.F11, "Log the character creator's windows");
+            _dragSensitivity = cat.CreateEntry("DragRotateSensitivity", 0.35f, "Degrees the character turns per pixel of mouse drag");
+            _dragInvert      = cat.CreateEntry("DragRotateInvert", false, "Reverse the drag-to-rotate direction");
+            _panSensitivity  = cat.CreateEntry("DragPanSensitivity", 0.003f, "Metres the camera moves per pixel of vertical drag");
+            _panInvert       = cat.CreateEntry("DragPanInvert", false, "Reverse the vertical drag direction");
+            _panLimit        = cat.CreateEntry("DragPanLimit", 0.4f, "Default max metres the camera can move up or down (contexts can set their own)");
+            _deadzone        = cat.CreateEntry("DragDeadzone", 8f, "Pixels of drag before it locks to rotating or panning");
+            _switchThreshold = cat.CreateEntry("DragSwitchThreshold", 40f, "Sustained pixels on the other axis before a drag switches between rotating and panning");
+            _zoomStep        = cat.CreateEntry("ZoomStep", 0.075f, "Zoom per scroll-wheel notch (fraction of the camera's distance)");
+            _maxZoom         = cat.CreateEntry("MaxZoom", 0.75f, "Default zoom-in limit, 0-0.95 of the distance (contexts can set their own)");
+            _minZoom         = cat.CreateEntry("MinZoom", 0f, "Default zoom-out limit past the normal view, 0 or negative (contexts can set their own)");
         }
 
         /// <summary>Hook the creator as soon as a scene has it, so the intro is caught too.</summary>
@@ -41,6 +53,18 @@ namespace MeowcowMirror
 
         public override void OnUpdate()
         {
+            PreviewControls.DegreesPerPixel = _dragSensitivity.Value;
+            PreviewControls.InvertRotate = _dragInvert.Value;
+            PreviewControls.PanPerPixel = _panSensitivity.Value;
+            PreviewControls.InvertPan = _panInvert.Value;
+            PreviewControls.PanLimit = Mathf.Max(0f, _panLimit.Value);
+            PreviewControls.DeadzonePixels = Mathf.Max(0f, _deadzone.Value);
+            PreviewControls.SwitchPixels = Mathf.Max(1f, _switchThreshold.Value);
+            PreviewControls.ZoomStep = _zoomStep.Value;
+            PreviewControls.MaxZoom = _maxZoom.Value;
+            PreviewControls.MinZoom = _minZoom.Value;
+            PreviewControls.Tick();
+
             if (Input.GetKeyDown(_mirrorKey.Value))  Mirror.Open(MirrorContexts.Mirror);
             if (Input.GetKeyDown(_barberKey.Value))  Mirror.Open(MirrorContexts.Barber);
             if (Input.GetKeyDown(_surgeonKey.Value)) Mirror.Open(MirrorContexts.Surgeon);

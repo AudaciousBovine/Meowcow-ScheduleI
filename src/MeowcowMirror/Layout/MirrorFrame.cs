@@ -38,6 +38,8 @@ namespace MeowcowMirror.Layout
 
         private static CreatorUI _ui;
         private static RectTransform _footer;
+        private static RectTransform _menu;
+        private static RectTransform _promptHolder;
         private static TMP_FontAsset _tabFont;
         private static RectTransform _tabStrip;
         private static Button _cancel;
@@ -76,6 +78,17 @@ namespace MeowcowMirror.Layout
 
             _cancel.gameObject.SetActive(mode == CommitMode.Mirror);
             SetLabel(_done, string.IsNullOrWhiteSpace(commitLabel) ? "Done" : commitLabel);
+        }
+
+        /// <summary>True if a screen point is over any part of the frame or the rotation slider (for the preview mouse controls).</summary>
+        internal static bool ContainsScreenPoint(Vector2 point)
+        {
+            if (_menu == null) return false;
+            return PreviewControls.Contains(_menu, point)
+                || PreviewControls.Contains(_tabStrip, point)
+                || PreviewControls.Contains(_promptHolder, point)
+                || (_scrollbar != null && PreviewControls.Contains(_scrollbar.GetComponent<RectTransform>(), point))
+                || (_ui != null && PreviewControls.Contains(_ui._avatarRotationSlider.GetComponent<RectTransform>(), point));
         }
 
         /// <summary>The scroll view around the tab contents; vanilla panels use it to scroll to gamepad selections.</summary>
@@ -126,6 +139,7 @@ namespace MeowcowMirror.Layout
             _tabs.Clear();
 
             var menu = contents.parent.GetComponent<RectTransform>();
+            _menu = menu;
                         var topbar = menu.Find("Topbar").GetComponent<RectTransform>();
             float barHeight = topbar.rect.height;
 
@@ -189,6 +203,9 @@ namespace MeowcowMirror.Layout
             // Vanilla Back/Next are replaced by the side tabs.
             ui._backButton.gameObject.SetActive(false);
             ui._nextButton.gameObject.SetActive(false);
+
+            // Rotation is done by dragging the preview (PreviewControls), without the slider's limits.
+            ui._avatarRotationSlider.gameObject.SetActive(false);
 
             // Tab strip: covers only the visible part of the tabs, with a RectMask2D clipping the
             // part that reaches under the panel. Clipping (rather than relying on draw order) keeps
@@ -306,6 +323,7 @@ namespace MeowcowMirror.Layout
 
             left.SetParent(holder, false);
             right.SetParent(holder, false);
+            _promptHolder = holder;
         }
 
         // ---------- Scrolling ----------

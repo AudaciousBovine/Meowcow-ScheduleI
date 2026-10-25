@@ -18,13 +18,26 @@ namespace MeowcowMirror.Contexts
         /// <summary>Text on the commit button: "Done", "Pay for service", "Apply".</summary>
         public string CommitLabel { get; }
 
-        public ContextDefinition(string id, string name, bool receipt = false, string commitLabel = "Done")
+        /// <summary>Max metres the preview camera can move up or down. Null uses the global setting.</summary>
+        public float? PanLimit { get; }
+
+        /// <summary>How far toward the character the camera can zoom in (0-1 of the distance). Null uses the global setting.</summary>
+        public float? MaxZoom { get; }
+
+        /// <summary>How far past the default spot the camera can zoom out (0 or negative). Null uses the global setting.</summary>
+        public float? MinZoom { get; }
+
+        public ContextDefinition(string id, string name, bool receipt = false, string commitLabel = "Done",
+                                 float? panLimit = null, float? maxZoom = null, float? minZoom = null)
         {
             if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("Context id is required", nameof(id));
             Id = id.Trim().ToLowerInvariant();
             Name = string.IsNullOrWhiteSpace(name) ? Id : name;
             Receipt = receipt;
             CommitLabel = string.IsNullOrWhiteSpace(commitLabel) ? "Done" : commitLabel;
+            PanLimit = panLimit;
+            MaxZoom = maxZoom;
+            MinZoom = minZoom;
         }
     }
 
@@ -49,8 +62,10 @@ namespace MeowcowMirror.Contexts
         static MirrorContexts()
         {
             Register(new ContextDefinition(Mirror, "Mirror", commitLabel: "Apply"));
-            Register(new ContextDefinition(Barber, "Barbershop", receipt: true, commitLabel: "Pay for service"));
-            Register(new ContextDefinition(Tattoo, "Tattoo Shop", receipt: true, commitLabel: "Pay for service"));
+            // Shop cameras sit much closer to the character, so they get a smaller pan range;
+            // the barber's camera is closest, so it zooms in half as far as the default.
+            Register(new ContextDefinition(Barber, "Barbershop", receipt: true, commitLabel: "Pay for service", panLimit: 0.2f, maxZoom: 0.375f));
+            Register(new ContextDefinition(Tattoo, "Tattoo Shop", receipt: true, commitLabel: "Pay for service", panLimit: 0.2f));
             Register(new ContextDefinition(NailSalon, "Nail Salon", receipt: true, commitLabel: "Pay for service"));
             Register(new ContextDefinition(Surgeon, "Surgeon", receipt: true, commitLabel: "Pay for service"));
             Register(new ContextDefinition(Dentist, "Dentist", receipt: true, commitLabel: "Pay for service"));

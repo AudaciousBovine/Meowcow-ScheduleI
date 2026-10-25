@@ -45,6 +45,9 @@ namespace MeowcowMirror.Layout
 
         public static CreatorUI FindInterface() => UObject.FindObjectOfType<CreatorUI>(true);
 
+        /// <summary>The interface the last layout was built on (cheap, for per-frame use).</summary>
+        internal static CreatorUI CurrentInterface => _ui;
+
         public static bool Apply(LayoutDefinition layout)
         {
             var ui = FindInterface();

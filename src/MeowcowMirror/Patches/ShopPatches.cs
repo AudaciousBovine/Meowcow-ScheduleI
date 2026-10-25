@@ -37,6 +37,9 @@ namespace MeowcowMirror.Patches
     {
         internal static void TakeOverIfSupported(CustomizationUI ui)
         {
+            PreviewControls.LastShop = ui; // preview mouse controls also work in shops that keep their vanilla menu
+            ui.RigRotationSlider.gameObject.SetActive(false); // dragging the preview replaces it
+
             string contextId = ContextFor(ui);
             if (contextId == null) return; // some other customization UI: leave it alone
 
@@ -50,7 +53,7 @@ namespace MeowcowMirror.Patches
             MelonCoroutines.Start(ShopSession.TakeOver(ui, contextId));
         }
 
-        private static string ContextFor(CustomizationUI ui)
+        internal static string ContextFor(CustomizationUI ui)
         {
             if (ui.TryCast<BarbershopUI>() != null) return MirrorContexts.Barber;
             if (ui.TryCast<TattooShopUI>() != null) return MirrorContexts.Tattoo;

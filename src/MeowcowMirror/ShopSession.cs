@@ -34,6 +34,9 @@ namespace MeowcowMirror
 
         internal static bool Active => _shop != null;
 
+        /// <summary>The vanilla shop Mirror is running on, or null.</summary>
+        internal static CustomizationUI Shop => _shop;
+
         private static bool IsFor(CustomizationUI shop) => _shop != null && shop != null && _shop.Pointer == shop.Pointer;
 
         /// <summary>Waits for the vanilla shop to finish opening, then swaps its menu for Mirror's.</summary>

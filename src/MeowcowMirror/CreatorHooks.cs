@@ -19,6 +19,9 @@ namespace MeowcowMirror
     internal static class CreatorHooks
     {
         private static IntPtr _hookedCreator;
+
+        /// <summary>The creator that's hooked (cheap, for per-frame use).</summary>
+        internal static Creator Current { get; private set; }
         private static Il2CppSystem.Action<CreatorState> _onOpen; // kept referenced so it isn't collected
 
         internal static void EnsureHooked(Creator creator)
@@ -28,6 +31,7 @@ namespace MeowcowMirror
             _onOpen = DelegateSupport.ConvertDelegate<Il2CppSystem.Action<CreatorState>>(new Action<CreatorState>(OnOpened));
             creator.add_OnOpen(_onOpen);
             _hookedCreator = creator.Pointer;
+            Current = creator;
             MirrorMod.Log.Msg("Hooked character creator");
         }
 
