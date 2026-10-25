@@ -50,7 +50,11 @@ namespace MeowcowMirror
             return pending;
         }
 
-        internal static void EndSession() => ActiveContext = null;
+        internal static void EndSession()
+        {
+            ActiveContext = null;
+            Costs.Receipt.End();
+        }
 
         private static bool ContextRegistryHas(string contextId, out ContextDefinition context)
         {

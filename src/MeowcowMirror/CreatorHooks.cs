@@ -3,11 +3,14 @@ using System.Collections;
 using MelonLoader;
 using Il2CppInterop.Runtime;
 using MeowcowMirror.Contexts;
+using MeowcowMirror.Costs;
 using MeowcowMirror.Layout;
 using Il2CppScheduleOne.PlayerScripts;
 using UObject = UnityEngine.Object;
 using Creator = Il2CppScheduleOne.CharacterCreator.CharacterCreator;
 using CreatorState = Il2CppScheduleOne.CharacterCreator.CharacterCreatorState;
+using NakedAppearance = Il2CppScheduleOne.Core.Avatar.NakedAppearance;
+using PlayerAppearance = Il2CppScheduleOne.Avatar.Player.PlayerAppearance;
 
 namespace MeowcowMirror
 {
@@ -23,6 +26,7 @@ namespace MeowcowMirror
         /// <summary>The creator that's hooked (cheap, for per-frame use).</summary>
         internal static Creator Current { get; private set; }
         private static Il2CppSystem.Action<CreatorState> _onOpen; // kept referenced so it isn't collected
+        private static Il2CppSystem.Action<NakedAppearance> _onPreviewChanged;
 
         internal static void EnsureHooked(Creator creator)
         {
@@ -30,6 +34,12 @@ namespace MeowcowMirror
 
             _onOpen = DelegateSupport.ConvertDelegate<Il2CppSystem.Action<CreatorState>>(new Action<CreatorState>(OnOpened));
             creator.add_OnOpen(_onOpen);
+
+            // Every change in the creator re-applies its preview avatar, which fires this event:
+            // the receipt listens here to stay up to date.
+            _onPreviewChanged = DelegateSupport.ConvertDelegate<Il2CppSystem.Action<NakedAppearance>>(new Action<NakedAppearance>(OnPreviewChanged));
+            creator._avatar.Appearance.add_OnNakedAppearanceChanged(_onPreviewChanged);
+
             _hookedCreator = creator.Pointer;
             Current = creator;
             MirrorMod.Log.Msg("Hooked character creator");
@@ -59,6 +69,12 @@ namespace MeowcowMirror
                 }
                 else
                 {
+                    // The receipt compares against the look the player walked in with.
+                    if (context.Receipt && Player.Local?.CurrentAppearance != null)
+                        Receipt.Begin(context, Player.Local.CurrentAppearance);
+                    else
+                        Receipt.End();
+
                     SeedFromPlayer(creator, state);
                 }
 
@@ -98,6 +114,31 @@ namespace MeowcowMirror
             {
                 MirrorMod.Log.Error($"Failed to build creator layout: {e}");
             }
+        }
+
+        private static void OnPreviewChanged(NakedAppearance naked)
+        {
+            if (!Receipt.Active) return;
+            try
+            {
+                Receipt.Refresh(Current?._currentState?.Appearance);
+            }
+            catch (Exception e)
+            {
+                MirrorMod.Log.Error($"Receipt update failed: {e.Message}");
+            }
+        }
+
+        /// <summary>Puts one service back to its starting value and updates the preview and controls.</summary>
+        internal static void RevertService(Service service, PlayerAppearance start)
+        {
+            var creator = Current;
+            var state = creator?._currentState;
+            if (state?.Appearance == null) return;
+
+            service.Revert(state.Appearance, start);
+            creator.ApplyNakedAppearance(); // fires OnNakedAppearanceChanged, which refreshes the receipt
+            CreatorLayoutBuilder.FindInterface()?.SetInputsToAppearance(state);
         }
 
         /// <summary>Mirror contexts start from the player's current look instead of the preset.</summary>

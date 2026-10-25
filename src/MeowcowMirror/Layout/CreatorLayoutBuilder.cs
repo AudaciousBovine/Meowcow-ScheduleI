@@ -102,7 +102,7 @@ namespace MeowcowMirror.Layout
                 .ToArray();
             ui._windows = new Il2CppReferenceArray<CreatorUI.Window>(windows);
 
-            MirrorFrame.SetTabs(built.Select(b => b.Tab.Name).ToList(), layout.CommitMode, layout.CommitLabel);
+            MirrorFrame.SetTabs(built.Select(b => b.Tab.Name).ToList(), layout.CommitMode, layout.CommitLabel, layout.ShowReceipt);
             MirrorFrame.Select(0);
 
             MirrorMod.Log.Msg($"Layout applied: {windows.Length} tabs, {placed.Count} options, {_rows.Count - placed.Count} hidden");

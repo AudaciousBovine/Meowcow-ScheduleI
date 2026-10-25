@@ -62,7 +62,7 @@ namespace MeowcowMirror.Layout
             Build(ui, contents);
         }
 
-        public static void SetTabs(IList<string> names, CommitMode mode, string commitLabel)
+        public static void SetTabs(IList<string> names, CommitMode mode, string commitLabel, bool showReceipt)
         {
             _commitMode = mode;
             _tabCount = names.Count;
@@ -78,6 +78,10 @@ namespace MeowcowMirror.Layout
 
             _cancel.gameObject.SetActive(mode == CommitMode.Mirror);
             SetLabel(_done, string.IsNullOrWhiteSpace(commitLabel) ? "Done" : commitLabel);
+
+            // Contexts with costs commit from the receipt; the main footer keeps only Cancel.
+            _done.gameObject.SetActive(!showReceipt);
+            ReceiptPanel.SetVisible(showReceipt, commitLabel);
         }
 
         /// <summary>True if a screen point is over any part of the frame or the rotation slider (for the preview mouse controls).</summary>
@@ -88,7 +92,8 @@ namespace MeowcowMirror.Layout
                 || PreviewControls.Contains(_tabStrip, point)
                 || PreviewControls.Contains(_promptHolder, point)
                 || (_scrollbar != null && PreviewControls.Contains(_scrollbar.GetComponent<RectTransform>(), point))
-                || (_ui != null && PreviewControls.Contains(_ui._avatarRotationSlider.GetComponent<RectTransform>(), point));
+                || (_ui != null && PreviewControls.Contains(_ui._avatarRotationSlider.GetComponent<RectTransform>(), point))
+                || ReceiptPanel.Contains(point);
         }
 
         /// <summary>The scroll view around the tab contents; vanilla panels use it to scroll to gamepad selections.</summary>
@@ -191,6 +196,7 @@ namespace MeowcowMirror.Layout
             contents.offsetMin = new Vector2(contents.offsetMin.x, barHeight);
 
             BuildScrollView(menu, contents);
+            ReceiptPanel.Build(ui, menu, topbar, barHeight, PanelPosition.y, PanelHeight);
 
             _cancel = CloneButton(ui._doneButton, _footer, "Cancel"); // Back's style reads as plain text here
             PinToFooter(_cancel, left: true);
@@ -263,7 +269,7 @@ namespace MeowcowMirror.Layout
             return tab;
         }
 
-        private static Button CloneButton(Button source, Transform parent, string label)
+        internal static Button CloneButton(Button source, Transform parent, string label)
         {
             var go = UObject.Instantiate(source.gameObject, parent);
             go.SetActive(true);
@@ -274,7 +280,7 @@ namespace MeowcowMirror.Layout
             return button;
         }
 
-        private static void SetLabel(Button button, string label)
+        internal static void SetLabel(Button button, string label)
         {
             var text = button.GetComponentInChildren<TextMeshProUGUI>(true);
             if (text != null) text.text = label;
@@ -290,7 +296,7 @@ namespace MeowcowMirror.Layout
             rt.anchoredPosition = new Vector2(left ? BarPadding : -BarPadding, 0f);
         }
 
-        private static UnityAction ToUnityAction(Action action) => DelegateSupport.ConvertDelegate<UnityAction>(action);
+        internal static UnityAction ToUnityAction(Action action) => DelegateSupport.ConvertDelegate<UnityAction>(action);
 
 
         /// <summary>
@@ -404,7 +410,10 @@ namespace MeowcowMirror.Layout
 
         // ---------- Footer actions ----------
 
-        private static void OnDone()
+        private static void OnDone() => Commit();
+
+        /// <summary>Applies the session's appearance (or hands it to the shop) and closes. Called by Done and the receipt.</summary>
+        internal static void Commit()
         {
             var creator = UObject.FindObjectOfType<Creator>(true);
             if (creator == null) return;

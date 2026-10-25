@@ -21,6 +21,8 @@ namespace MeowcowMirror
         private MelonPreferences_Entry<KeyCode> _dumpKey, _addKey, _removeKey, _inspectKey, _layoutKey;
         private MelonPreferences_Entry<float> _dragSensitivity, _panSensitivity, _panLimit, _deadzone, _switchThreshold, _zoomStep, _maxZoom, _minZoom;
         private MelonPreferences_Entry<bool> _dragInvert, _panInvert;
+        private MelonPreferences_Entry<string> _paymentPreference;
+        private MelonPreferences_Entry<float> _defaultPrice;
 
         public override void OnInitializeMelon()
         {
@@ -45,7 +47,15 @@ namespace MeowcowMirror
             _switchThreshold = cat.CreateEntry("DragSwitchThreshold", 40f, "Sustained pixels on the other axis before a drag switches between rotating and panning");
             _zoomStep        = cat.CreateEntry("ZoomStep", 0.075f, "Zoom per scroll-wheel notch (fraction of the camera's distance)");
             _maxZoom         = cat.CreateEntry("MaxZoom", 0.75f, "Default zoom-in limit, 0-0.95 of the distance (contexts can set their own)");
+            _paymentPreference = cat.CreateEntry("PaymentPreference", "Card", "Default way to pay for services: Card (vanilla) or Cash; click a receipt line to switch");
+            _defaultPrice      = cat.CreateEntry("DefaultServicePrice", 10f, "Price for services vanilla doesn't price (e.g. eyebrows); prices.json overrides");
             _minZoom         = cat.CreateEntry("MinZoom", 0f, "Default zoom-out limit past the normal view, 0 or negative (contexts can set their own)");
+        }
+
+        private void ApplyCostSettings()
+        {
+            Costs.Receipt.PreferCash = string.Equals(_paymentPreference.Value?.Trim(), "Cash", System.StringComparison.OrdinalIgnoreCase);
+            Costs.PriceBook.DefaultPrice = Mathf.Max(0f, _defaultPrice.Value);
         }
 
         /// <summary>Hook the creator as soon as a scene has it, so the intro is caught too.</summary>
@@ -64,6 +74,7 @@ namespace MeowcowMirror
             PreviewControls.MaxZoom = _maxZoom.Value;
             PreviewControls.MinZoom = _minZoom.Value;
             PreviewControls.Tick();
+            ApplyCostSettings();
 
             if (Input.GetKeyDown(_mirrorKey.Value))  Mirror.Open(MirrorContexts.Mirror);
             if (Input.GetKeyDown(_barberKey.Value))  Mirror.Open(MirrorContexts.Barber);

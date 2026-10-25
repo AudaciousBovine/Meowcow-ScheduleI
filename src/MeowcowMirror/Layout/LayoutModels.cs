@@ -38,5 +38,8 @@ namespace MeowcowMirror.Layout
 
         /// <summary>Text on the commit button, from the context.</summary>
         public string CommitLabel { get; set; } = "Done";
+
+        /// <summary>Whether the receipt panel is shown, from the context.</summary>
+        public bool ShowReceipt { get; set; }
     }
 }
