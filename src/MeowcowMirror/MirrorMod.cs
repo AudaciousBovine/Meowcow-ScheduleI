@@ -23,6 +23,7 @@ namespace MeowcowMirror
         private MelonPreferences_Entry<bool> _dragInvert, _panInvert;
         private MelonPreferences_Entry<string> _paymentPreference;
         private MelonPreferences_Entry<float> _defaultPrice;
+        private MelonPreferences_Entry<bool> _enforceRankLocks, _fullCatalogInCreate;
 
         public override void OnInitializeMelon()
         {
@@ -48,6 +49,8 @@ namespace MeowcowMirror
             _zoomStep        = cat.CreateEntry("ZoomStep", 0.075f, "Zoom per scroll-wheel notch (fraction of the camera's distance)");
             _maxZoom         = cat.CreateEntry("MaxZoom", 0.75f, "Default zoom-in limit, 0-0.95 of the distance (contexts can set their own)");
             _paymentPreference = cat.CreateEntry("PaymentPreference", "Card", "Default way to pay for services: Card (vanilla) or Cash; click a receipt line to switch");
+            _enforceRankLocks  = cat.CreateEntry("EnforceRankLocks", true, "Hide styles above your rank, as vanilla does (off: every style is available)");
+            _fullCatalogInCreate = cat.CreateEntry("FullBarberCatalogInCreate", false, "Offer every barbershop hair and facial hair style at character creation");
             _defaultPrice      = cat.CreateEntry("DefaultServicePrice", 10f, "Price for services vanilla doesn't price (e.g. eyebrows); prices.json overrides");
             _minZoom         = cat.CreateEntry("MinZoom", 0f, "Default zoom-out limit past the normal view, 0 or negative (contexts can set their own)");
         }
@@ -56,6 +59,8 @@ namespace MeowcowMirror
         {
             Costs.Receipt.PreferCash = string.Equals(_paymentPreference.Value?.Trim(), "Cash", System.StringComparison.OrdinalIgnoreCase);
             Costs.PriceBook.DefaultPrice = Mathf.Max(0f, _defaultPrice.Value);
+            Costs.Receipt.EnforceRankLocks = _enforceRankLocks.Value;
+            Costs.Catalog.FullBarberCatalogInCreate = _fullCatalogInCreate.Value;
         }
 
         /// <summary>Hook the creator as soon as a scene has it, so the intro is caught too.</summary>

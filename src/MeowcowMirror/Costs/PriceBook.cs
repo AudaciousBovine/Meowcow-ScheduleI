@@ -5,6 +5,7 @@ using System.Text.Json;
 using MelonLoader.Utils;
 using UObject = UnityEngine.Object;
 using MeowcowMirror.Contexts;
+using FullRank = Il2CppScheduleOne.Levelling.FullRank;
 using BarbershopUI = Il2CppScheduleOne.UI.CharacterCustomization.BarbershopUI;
 using CustomizationCategory = Il2CppScheduleOne.UI.CharacterCustomization.CharacterCustomizationCategory;
 using CustomizationOption = Il2CppScheduleOne.UI.CharacterCustomization.CharacterCustomizationOption;
@@ -25,6 +26,8 @@ namespace MeowcowMirror.Costs
 
         private const string AnyValue = "*";
         private static readonly Dictionary<string, float> _vanilla = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, FullRank> _vanillaRanks = new Dictionary<string, FullRank>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, List<string>> _catalogs = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         private static readonly HashSet<string> _vanillaLoaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static Dictionary<string, Dictionary<string, PriceEntry>> _overrides =
             new Dictionary<string, Dictionary<string, PriceEntry>>(StringComparer.OrdinalIgnoreCase);
@@ -57,6 +60,20 @@ namespace MeowcowMirror.Costs
                 return contextDefault.Default.Value;
 
             return DefaultPrice;
+        }
+
+        /// <summary>The styles a vanilla shop sells for a service, in its display order ("" is None).</summary>
+        internal static IReadOnlyList<string> GetCatalog(string contextId, string serviceId)
+        {
+            EnsureVanilla(contextId);
+            return _catalogs.TryGetValue($"{contextId}|{serviceId}", out var list) ? list : (IReadOnlyList<string>)Array.Empty<string>();
+        }
+
+        /// <summary>The rank vanilla requires for this value in this context, if any.</summary>
+        internal static bool TryGetRequiredRank(string contextId, Service service, string value, out FullRank rank)
+        {
+            EnsureVanilla(contextId);
+            return _vanillaRanks.TryGetValue(Key(contextId, service.Id, value ?? ""), out rank);
         }
 
         /// <summary>Re-reads prices.json, writing an example file on first run.</summary>
@@ -140,10 +157,19 @@ namespace MeowcowMirror.Costs
         private static void ReadCategory(string contextId, CustomizationCategory category, string serviceId)
         {
             if (category == null) return;
-            foreach (var option in category.GetComponentsInChildren<CustomizationOption>(true))
+            var catalog = new List<string>();
+            _catalogs[$"{contextId}|{serviceId}"] = catalog;
+
+            // Vanilla sorts its options by price on Awake; sibling order is the shop's display order.
+            var options = new List<CustomizationOption>(category.GetComponentsInChildren<CustomizationOption>(true));
+            options.Sort((a, b) => a.transform.GetSiblingIndex().CompareTo(b.transform.GetSiblingIndex()));
+
+            foreach (var option in options)
             {
                 string id = option.AvatarObject != null ? option.AvatarObject.Id : "";
                 _vanilla[Key(contextId, serviceId, id)] = option.Price;
+                if (option.RequireLevel) _vanillaRanks[Key(contextId, serviceId, id)] = option.RequiredLevel;
+                if (!catalog.Contains(id)) catalog.Add(id);
             }
         }
 

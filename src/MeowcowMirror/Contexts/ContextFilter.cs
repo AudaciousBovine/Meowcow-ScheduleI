@@ -16,6 +16,7 @@ namespace MeowcowMirror.Contexts
                 CommitMode = context.Id == MirrorContexts.Create ? CommitMode.Vanilla : CommitMode.Mirror,
                 CommitLabel = context.CommitLabel,
                 ShowReceipt = context.Receipt,
+                ContextId = context.Id,
             };
 
             foreach (var tab in layout.Tabs)

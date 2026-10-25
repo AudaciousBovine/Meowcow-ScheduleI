@@ -68,6 +68,10 @@ namespace MeowcowMirror.Layout
 
             HideAllContainers();
 
+            // Which styles the grids show depends on the context; set that before rows are measured.
+            Costs.Catalog.Apply(ui, layout.ContextId, CreatorHooks.Current?._currentState?.Appearance);
+            RefreshRowSelectables();
+
             var built = new List<BuiltTab>();
             var placed = new HashSet<string>();
 
@@ -142,6 +146,15 @@ namespace MeowcowMirror.Layout
             _parking = parking.transform;
 
             MirrorMod.Log.Msg($"Captured {_vanillaWindows.Count} vanilla tabs and {_rows.Count} rows");
+        }
+
+        /// <summary>Re-reads each row's gamepad selectables: catalogs add buttons and hide others.</summary>
+        private static void RefreshRowSelectables()
+        {
+            foreach (var kv in _rows)
+                _rowSelectables[kv.Key] = kv.Value.GetComponentsInChildren<UISelectable>(true)
+                    .Where(sel => IsShownWithin(sel.transform, kv.Value))
+                    .ToArray();
         }
 
         private static void HideAllContainers()

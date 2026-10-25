@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Money;
+using Il2CppScheduleOne.Levelling;
 using MeowcowMirror.Contexts;
 using PlayerAppearance = Il2CppScheduleOne.Avatar.Player.PlayerAppearance;
 
@@ -16,6 +17,8 @@ namespace MeowcowMirror.Costs
         public string Description;
         public float Price;
         public PayMethod Method;
+        public string LockReason;   // set when the player's rank is too low (vanilla rank locks)
+        public bool Locked => LockReason != null;
     }
 
     /// <summary>
@@ -25,6 +28,7 @@ namespace MeowcowMirror.Costs
     internal static class Receipt
     {
         internal static bool PreferCash;
+        internal static bool EnforceRankLocks = true;
         internal static event Action Changed;
 
         private static ContextDefinition _context;
@@ -75,7 +79,14 @@ namespace MeowcowMirror.Costs
                     _chosen[service.Id] = method;
                 }
 
-                _lines.Add(new ReceiptLine { Service = service, Description = service.Describe(current), Price = price, Method = method });
+                _lines.Add(new ReceiptLine
+                {
+                    Service = service,
+                    Description = service.Describe(current),
+                    Price = price,
+                    Method = method,
+                    LockReason = RankLockReason(service, value),
+                });
             }
             Changed?.Invoke();
         }
@@ -106,6 +117,7 @@ namespace MeowcowMirror.Costs
         internal static bool CanPay(out string reason)
         {
             reason = null;
+            if (_lines.Any(l => l.Locked)) { reason = "Needs a higher rank"; return false; }
             if (CashTotal > Balance(PayMethod.Cash)) { reason = "Not enough cash"; return false; }
             if (CardTotal > Balance(PayMethod.Card)) { reason = "Not enough on your card"; return false; }
             return true;
@@ -125,6 +137,22 @@ namespace MeowcowMirror.Costs
                 money.CreateOnlineTransaction("Character customization", -card, 1f, note);
             }
             MirrorMod.Log.Msg($"Paid {MoneyManager.FormatAmount(cash + card, false, false)} (cash {cash}, card {card})");
+        }
+
+        /// <summary>
+        /// "Requires X" if vanilla locks this value behind a rank the player hasn't reached.
+        /// Compares rank then tier directly; FullRank's operators aren't callable through interop.
+        /// </summary>
+        private static string RankLockReason(Service service, string value)
+        {
+            if (!EnforceRankLocks || _context == null) return null;
+            if (!PriceBook.TryGetRequiredRank(_context.Id, service, value, out var required)) return null;
+
+            var levels = NetworkSingleton<LevelManager>.Instance;
+            if (levels == null) return null;
+
+            bool below = levels.Rank < required.Rank || (levels.Rank == required.Rank && levels.Tier < required.Tier);
+            return below ? "Requires " + FullRank.GetString(required) : null;
         }
 
         private static PayMethod DefaultMethod(float price)

@@ -158,7 +158,11 @@ namespace MeowcowMirror.Layout
                 var line = lines[i];
                 row.Label.text = line.Description;
 
-                if (line.Price <= 0f)
+                if (line.Locked)
+                {
+                    row.Cost.text = $"<color={ErrorColor}>{line.LockReason}</color>";
+                }
+                else if (line.Price <= 0f)
                 {
                     row.Cost.text = $"<color={CardColor}>Free</color>";
                 }
@@ -227,7 +231,7 @@ namespace MeowcowMirror.Layout
             cycle.onClick.AddListener(MirrorFrame.ToUnityAction(() => Receipt.Cycle(LineAt(row.Index))));
 
             row.Label = MakeText(rect, "Label", TextAlignmentOptions.MidlineLeft);
-            Stretch(row.Label.rectTransform, 8f, 0f, 150f, 0f);
+            Stretch(row.Label.rectTransform, 8f, 0f, 190f, 0f);
 
             row.Cost = MakeText(rect, "Cost", TextAlignmentOptions.MidlineRight);
             row.Cost.richText = true;
@@ -235,7 +239,7 @@ namespace MeowcowMirror.Layout
             costRect.anchorMin = new Vector2(1f, 0f);
             costRect.anchorMax = new Vector2(1f, 1f);
             costRect.pivot = new Vector2(1f, 0.5f);
-            costRect.sizeDelta = new Vector2(120f, 0f);
+            costRect.sizeDelta = new Vector2(150f, 0f);
             costRect.anchoredPosition = new Vector2(-(RowHeight + 4f), 0f);
 
             // X: revert this change.
