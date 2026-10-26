@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
+using MeowcowCore.Settings;
 
-namespace MeowcowCore.Settings
+namespace MeowcowThemes.Settings
 {
     /// <summary>
     /// A set of appearance values, in the same shape as a settings file but values only:
@@ -63,7 +64,7 @@ namespace MeowcowCore.Settings
         {
             var def = _file.Find(sectionId, key);
             if (def == null) return null;
-            if (!CoreSettings.IsThemed(sectionId, key)) return def.Value ?? def.Default;
+            if (!ThemeSettings.IsThemed(sectionId, key)) return def.Value ?? def.Default;
 
             if (_theme != null && _theme.TryGet(sectionId, key, out var node) && SettingsFile.TryNormalize(def, node, out var value))
                 return value;

@@ -1,8 +1,8 @@
 using MelonLoader;
 using UnityEngine;
 using MeowcowCore.Diagnostics;
-using MeowcowCore.Settings;
 using MeowcowCore.Menu;
+using MeowcowCore.Settings;
 
 [assembly: MelonInfo(typeof(MeowcowCore.CoreMod), "MeowcowCore", "0.0.1", "Evelyna")]
 [assembly: MelonGame("TVGS", "Schedule I")]
@@ -32,15 +32,14 @@ namespace MeowcowCore
 
         public override void OnSceneWasInitialized(int buildIndex, string sceneName)
         {
-            if (sceneName == "Menu") MainMenuLayout.OnMenuLoaded();
-            LobbyTweaks.OnSceneLoaded(); // main menu and game scenes both have a lobby panel
+            if (sceneName == "Menu") MainMenu.OnMenuLoaded();
+            LobbyToggle.OnSceneLoaded(); // main menu and game scenes both have a lobby panel
         }
 
         public override void OnUpdate()
         {
             CoreSettings.Tick();
-            MainMenuLayout.Tick();
-            LobbyTweaks.Tick();
+            LobbyToggle.Tick();
 
             if (Input.GetKeyDown(_dumpKey.Value) && (!_dumpNeedsCtrl.Value || CtrlHeld()))
                 SceneDump.Run();

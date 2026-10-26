@@ -159,7 +159,7 @@ namespace MeowcowCore.Settings
         // ---------- Validation ----------
 
         /// <summary>Checks a value against a setting's type and limits; numbers are clamped.</summary>
-        internal static bool TryNormalize(SettingDefinition def, JsonNode node, out JsonNode result)
+        public static bool TryNormalize(SettingDefinition def, JsonNode node, out JsonNode result)
         {
             result = null;
             if (node is not JsonValue value) return false;

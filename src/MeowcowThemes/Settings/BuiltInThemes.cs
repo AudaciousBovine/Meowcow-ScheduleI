@@ -1,6 +1,6 @@
-namespace MeowcowCore.Settings
+namespace MeowcowThemes.Settings
 {
-    /// <summary>Themes shipped with Core. Same format as a theme file.</summary>
+    /// <summary>Themes shipped with MeowcowThemes. Same format as a theme file.</summary>
     internal static class BuiltInThemes
     {
         /// <summary>The Meowcow suite's own look.</summary>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>MeowcowThemes</AssemblyName>
+    <RootNamespace>MeowcowThemes</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Private=false: Core is installed as its own mod, so don't copy it next to this one. -->
+    <ProjectReference Include="..\MeowcowCore\MeowcowCore.csproj" Private="false" />
+  </ItemGroup>
+</Project>

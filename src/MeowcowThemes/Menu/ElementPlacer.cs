@@ -1,10 +1,11 @@
 using UnityEngine;
 using UnityEngine.UI;
 using Il2CppTMPro;
+using MeowcowCore.Menu;
 using MeowcowCore.Settings;
-using S = MeowcowCore.Settings.CoreSettings;
+using S = MeowcowThemes.Settings.ThemeSettings;
 
-namespace MeowcowCore.Menu
+namespace MeowcowThemes.Menu
 {
     /// <summary>One placeable element and its recorded vanilla placement.</summary>
     internal sealed class PlacedElement
@@ -135,7 +136,7 @@ namespace MeowcowCore.Menu
                 if (!IsVisible(g, root)) continue;
 
                 var rt = g.rectTransform;
-                var r = VisibleRect(g);
+                var r = UiTools.VisibleRect(g);
                 foreach (var corner in new[] { new Vector3(r.xMin, r.yMin), new Vector3(r.xMin, r.yMax),
                                                new Vector3(r.xMax, r.yMin), new Vector3(r.xMax, r.yMax) })
                 {
@@ -147,21 +148,6 @@ namespace MeowcowCore.Menu
             }
 
             return any ? Rect.MinMaxRect(xMin, yMin, xMax, yMax) : (Rect?)null;
-        }
-
-        /// <summary>
-        /// The part of a graphic that's actually drawn, in its own space. Text is measured by its letters,
-        /// not its box, so anchoring hugs the visible text whatever its alignment.
-        /// </summary>
-        internal static Rect VisibleRect(Graphic g)
-        {
-            var text = g.TryCast<TMP_Text>();
-            if (text == null) return g.rectTransform.rect;
-
-            text.ForceMeshUpdate(false, false);
-            var b = text.textBounds;
-            if (b.size.x <= 0f || b.size.y <= 0f) return g.rectTransform.rect;
-            return Rect.MinMaxRect(b.min.x, b.min.y, b.max.x, b.max.y);
         }
 
         /// <summary>
