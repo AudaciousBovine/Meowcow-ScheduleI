@@ -14,9 +14,15 @@ namespace MeowcowCore.Settings
     {
         // Sections
         internal const string Lobby = "lobby";
+        internal const string Windows = "windows";
 
         // Keys
         internal const string PlayMode = "playMode";
+        internal const string ImprovedWindows = "improved";
+        internal const string WindowWidth = "width";
+        internal const string WindowHeight = "height";
+        internal const string WindowX = "x";
+        internal const string WindowY = "y";
 
         internal const string Multiplayer = "Multiplayer";
         internal const string Solo = "Solo";
@@ -61,6 +67,22 @@ namespace MeowcowCore.Settings
                     Choice(PlayMode, "Play mode",
                         "Solo hides the invite slots; a friend joining switches back to Multiplayer. Click the lobby title to change it.",
                         Multiplayer, Multiplayer, Solo),
+                },
+            });
+
+            doc.Sections.Add(new SettingsSection
+            {
+                Id = Windows,
+                Name = "Windows",
+                Description = "Settings, Load Game, New Game and Meowcow Options share one window frame",
+                Settings =
+                {
+                    Bool(ImprovedWindows, "Improved windows",
+                        "Bigger, draggable windows with tabs on the left and a Back button. Off: the game's own screens", true),
+                    Number(WindowWidth, "Width", "Window width (screen is 1920 wide)", 1100, 700, 1800, 10),
+                    Number(WindowHeight, "Height", "Window height (screen is 1080 tall)", 700, 400, 1000, 10),
+                    Number(WindowX, "X position", "Set by dragging the title; null centres it (double-click the title)", null, -960, 960, 1),
+                    Number(WindowY, "Y position", "Set by dragging the title; null centres it (double-click the title)", null, -540, 540, 1),
                 },
             });
 

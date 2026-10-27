@@ -45,6 +45,9 @@ namespace MeowcowCore.Menu
                 yield break;
             }
 
+            try { WindowFrame.OnMenuReady(); }
+            catch (Exception e) { CoreMod.Log.Error($"Window frame setup failed: {e}"); }
+
             try { Ready?.Invoke(); }
             catch (Exception e) { CoreMod.Log.Error($"MainMenu.Ready handler failed: {e}"); }
         }

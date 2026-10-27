@@ -40,6 +40,7 @@ namespace MeowcowCore
         {
             CoreSettings.Tick();
             LobbyToggle.Tick();
+            WindowFrame.Tick();
 
             if (Input.GetKeyDown(_dumpKey.Value) && (!_dumpNeedsCtrl.Value || CtrlHeld()))
                 SceneDump.Run();
