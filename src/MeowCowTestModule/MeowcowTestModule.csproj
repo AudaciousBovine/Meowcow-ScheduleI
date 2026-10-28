@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Dev-only test module for SuiteModules. Never shipped; delete once Mirror runs on the new Core. -->
+  <PropertyGroup>
+    <AssemblyName>MeowcowTestModule</AssemblyName>
+    <RootNamespace>MeowcowTestModule</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Private=false: Core is installed as its own mod, so don't copy it next to this one. -->
+    <ProjectReference Include="..\MeowcowCore\MeowcowCore.csproj" Private="false" />
+  </ItemGroup>
+</Project>

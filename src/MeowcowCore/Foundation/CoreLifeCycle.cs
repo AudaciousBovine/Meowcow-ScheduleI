@@ -1,8 +1,10 @@
 using System;
+using Il2CppFishNet;
 using Il2CppInterop.Runtime;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Persistence;
 using Il2CppScheduleOne.PlayerScripts;
+using MeowcowCore.ModuleApi;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 
@@ -21,8 +23,8 @@ namespace MeowcowCore.Foundation;
 /// session end is cleanup only and nothing is ever written at quit.
 /// </summary>
 /// <remarks>
-/// [CHANGED] New for the rebuild (design §4). For now each phase only logs a line, so the timing can be
-/// checked in-game; the ModuleApi plugs into these phases next.
+/// [CHANGED] New for the rebuild (design §4). Session start and end now call the suite's modules
+/// through <see cref="SuiteModules"/>.
 /// [SOURCE] Vanilla <c>LoadManager</c> (its own systems treat <c>onLoadComplete</c> as "game ready",
 /// and <c>SaveManager</c> cleans up on <c>onPreSceneChange</c>); LilithsEngine's single-listener pattern.
 /// [PERFORMANCE] Two event listeners and a flag; nothing per frame.
@@ -79,6 +81,9 @@ public static class CoreLifecycle
         // the whole run. Hooked here rather than at launch, where it may not exist yet.
         if (!_hooked) HookLoadManager();
 
+        // [CHANGED] Every mod has registered by now (OnInitializeMelon all run before the first scene).
+        SuiteModules.LogRegisteredOnce();
+
         Log.Info("Menu");
     }
 
@@ -133,6 +138,9 @@ public static class CoreLifecycle
 
             IsInSession = true;
             Log.Info("Session start");
+
+            // [CHANGED] Modules: wake Session modules, then give every awake module the session.
+            SuiteModules.SessionStarted(new SessionInfo(isHost: InstanceFinder.IsServer));
         }
         catch (Exception e)
         {
@@ -164,5 +172,8 @@ public static class CoreLifecycle
     {
         IsInSession = false;
         Log.Info(reason == null ? "Session end" : $"Session end ({reason})");
+
+        // [CHANGED] Modules: every module that got a session start gets its end, on either path.
+        SuiteModules.SessionEnded();
     }
 }

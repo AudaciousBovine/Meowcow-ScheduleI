@@ -48,7 +48,6 @@ public sealed class CoreMod : MelonMod
     /// </remarks>
     public override void OnSceneWasInitialized(int buildIndex, string sceneName)
     {
-        LogSceneEvent("Initialized", buildIndex, sceneName); // [TEMPORARY] diagnostic, see below
         CoreLifecycle.OnSceneInitialized(sceneName);
     }
 
