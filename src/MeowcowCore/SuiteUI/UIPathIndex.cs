@@ -48,8 +48,24 @@ public static class UIPathIndex
     /// <summary>Under a framed screen: the content area (each category's panel lives here in vanilla).</summary>
     public const string WindowContent = "Content";
 
-    /// <summary>Under a framed screen: the tab list.</summary>
+    /// <summary>Under a framed screen: the tab strip (holds vanilla's UITab, which cycles tabs on LB/RB).</summary>
+    public const string WindowTabsPanel = "TabsPanel";
+
+    /// <summary>Under a framed screen: the tab list (layout group and toggle group).</summary>
     public const string WindowTabsLayout = "TabsPanel/TabsLayout";
+
+    /// <summary>Under a tab: its label.</summary>
+    public const string WindowTabLabel = "Label";
+
+    /// <summary>Under a framed screen: the LB and RB prompts shown with a gamepad.</summary>
+    public const string WindowLeftBumper = "Left bumper prompt";
+    public const string WindowRightBumper = "Right bumper prompt";
+
+    /// <summary>Under the Settings screen: its version text (not wanted in a Meowcow window).</summary>
+    public const string SettingsVersion = "Version";
+
+    /// <summary>Under the Settings screen: the display-settings confirmation, a nested screen of its own.</summary>
+    public const string SettingsConfirmDisplay = "ConfirmDisplaySettings";
 
     /// <summary>
     /// Finds vanilla's Settings screen (the main menu's, or the pause menu's in-game). Null if missing.
