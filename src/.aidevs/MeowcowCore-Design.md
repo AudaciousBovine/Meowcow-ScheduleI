@@ -1,9 +1,10 @@
 # MeowcowCore — Design
 
 Status: **agreed design.** Supersedes `MeowcowCore-DesignPlan.md`.
-Built so far: `MeowcowLogger` (done), `CorePathIndex` (draft, needs updating to the playthrough
-layout in §10). Everything else is design only.
-Updated with the dnSpy research: save triggers, death and respawn, keybinds, item UI.
+Built and tested in-game: **Foundation** (`MeowcowLogger`, `CorePathIndex`, `CoreLifecycle`, `CoreMod`)
+and the first part of **ModuleApi** (`IMeowcowModule`, `WakeTrigger`, `SessionInfo`, `SuiteModules`).
+Everything else is design only.
+Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Findings.md`.
 
 ---
 
@@ -33,6 +34,8 @@ Updated with the dnSpy research: save triggers, death and respawn, keybinds, ite
 - **Zero cost until needed.** Modules do nothing until woken; no per-frame work without a reason.
 - **Nothing outside the game is supported while it runs.** JSON is hand-edited only with the game
   closed; save folders are only changed through Core's own menu.
+- **Session end is cleanup only.** Anything that must survive is written when it changes or at a save,
+  never at session end or quit. Unsaved data is dropped like vanilla, and every launch starts clean.
 
 ### IL2CPP rules
 - Prefer subscribing to game events over Harmony patches (inlining can skip patches).
@@ -52,6 +55,8 @@ Updated with the dnSpy research: save triggers, death and respawn, keybinds, ite
 - **Tie-ins ask for other modules at wake or session start and keep the result**, never per frame.
 - **`GameInput.exitListeners` is cleared on `onPreSceneChange`.** Core's windows re-register their Back
   handling each session.
+- **Build menu UI on scene Initialized, never Loaded.** Exiting a game loads the Menu scene three
+  times; on Loaded, two of those copies are about to be destroyed (§4).
 - **`IntroManager` subscribes to `CharacterCreator.OnComplete` and never unsubscribes.** Any later
   `Done()` would re-run the end of the intro unless the listeners are swapped out (§11).
 
@@ -66,7 +71,7 @@ Updated with the dnSpy research: save triggers, death and respawn, keybinds, ite
 MeowcowCore/
   CoreMod.cs              entry point
   Foundation/             MeowcowLogger, CorePathIndex, CoreLifecycle
-  ModuleApi/              IMeowcowModule, WakeTrigger, SessionInfo, CoreModules
+  ModuleApi/              IMeowcowModule, WakeTrigger, SessionInfo, SuiteModules
   SuiteUI/                UIPathIndex, UITemplateRegistry, UIStyle, UIBuilder, MeowcowWindow
   SuiteSettings/          setting declarations, store, scopes, lobby sync, keybind registry
   SuiteSaveManagement/    SuiteSaveManager, playthroughs, snapshots, new game, import
@@ -74,6 +79,8 @@ MeowcowCore/
 ```
 - `Suite` prefix marks systems that parallel a vanilla one, to avoid confusion.
 - Namespaces follow folders. Folders are created only when their first file is written.
+- `src/MeowcowTestModule/`: dev-only module that logs every call and can fail on purpose (waking,
+  retries, isolation). Never shipped; deleted once Mirror runs on the new Core.
 
 ---
 
@@ -87,32 +94,64 @@ MeowcowCore/
 - **Zero-cost debug lines:** `Log.Debug($"...")` uses a C# 10 interpolated string handler, so the
   string is never built when debug is off. `[SOURCE]` general .NET 6 practice.
 
-### `CorePathIndex` — draft
-- The only place the suite builds paths. Root: `UserData/Meowcow/`.
-- Builds paths only; never touches the disk. Writers call `Ensure(folder)` first.
-- Names are cleaned (invalid characters replaced; `.` and `..` rejected).
+### `CorePathIndex` — built
+- The only place the suite builds paths. Root: `UserData/Meowcow/`; layout in §10.
+- **Builds paths only: never chooses names, never touches the disk.** Writers call `Ensure(folder)`
+  first. Names (playthrough folders, duplicate numbering, snapshot folders) are `SuiteSaveManager`'s job.
+- Core's folder is `MeowcowCore/`, named by its module Id like every other mod's.
+- **Save folders share one shape** (`Game/` + `modules.json`), so `GameDir(saveDir)` and
+  `ModulesFile(saveDir)` work for `Current/` and every snapshot alike.
+- `CleanName` (public) is path safety, not naming: invalid characters → `_`, trailing dots and spaces
+  trimmed (Windows drops them), reserved device names (`CON`, `NUL`, `COM1`, ...) get `_` appended,
+  empty results rejected.
 - The game's own paths are read where used, not here.
-- Needs updating to the layout in §10.
+- Note for outside modders: a module Id of `Saves` or `DeletedSaves` would collide with those folders.
 
-### `CoreLifecycle`
+### `CoreLifecycle` — built
 | Phase | Trigger |
 |---|---|
 | Load | `OnInitializeMelon` |
-| Menu | `"Menu"` scene loaded |
+| Menu | `"Menu"` scene initialised, once per real load |
 | Session start | `LoadManager.onLoadComplete` in the `"Main"` scene |
-| Session end | `LoadManager.onPreSceneChange` while a session is active |
-| Quit | MelonLoader `OnApplicationQuit` |
+| Session end | `LoadManager.onPreSceneChange` while a session is active, or the Menu phase arriving while one still is |
 
-- `LoadManager` is a `PersistentSingleton`: hooked once.
+- **No Quit phase.** Nothing is written at quit and every launch starts clean (§2).
+- `LoadManager` is a `PersistentSingleton`: hooked once, on the first Menu scene (it may not exist at
+  launch); retried on the next Menu if missing.
 - **Tutorial: dormant.** Session start only fires in `"Main"`.
 - At session start the save is loaded, `Player.Local` exists and `PlayerLoaded` is true
   (both `StartGame` and `LoadAsClient`). Core keeps a null check that logs a warning.
-- **Core's own "in session" flag is required:** `onPreSceneChange` also fires going *into* a game
-  and at the start of a client join.
+- **Core's own "in session" flag is required** (`IsInSession`, public): `onPreSceneChange` also fires
+  going *into* a game and at the start of a client join.
 - Don't use `IsGameLoaded` during session start; it flips 1–2 s later.
 - **Isolation:** Core holds the single listener and calls each module in its own try/catch.
   `[SOURCE]` vanilla `LoadManager`; LilithsEngine event bus pattern.
 - `[PERFORMANCE]` session start runs inside the load; heavy work goes into a coroutine.
+
+**Exiting a game loads the Menu scene three times**, all in one frame:
+- FishNet's `DefaultScene` loads its offline scene (`Menu`) when the server stops, again when the client
+  stops (no longer a server by then), plus vanilla's own `LoadSceneAsync("Menu")`. Unity only switches
+  scenes next frame, so `DefaultScene`'s "already in Menu" guard doesn't catch the repeats.
+- Each load is a new scene instance (new handle); only the last survives. By Initialized, all events
+  report the survivor, so **the Menu phase skips a repeated handle**.
+- A client leaving should show two loads (its server never started). Untested.
+- `[SOURCE]` FishNet `DefaultScene`; vanilla `LoadManager.ExitToMenu`.
+
+**Exit timing** (vanilla `ExitToMenu` coroutine): clients first ask the host to save their player data
+(up to 3 s), then a 1.25 s wait, then `onPreSceneChange`, then the connections stop, then the Menu load,
+then `onSceneChangeDone`. So session-end cleanup runs while the game is still intact.
+- `onSceneChangeDone` fires once vanilla's Menu load finishes: a vanilla-sourced alternative for the
+  Menu phase if the handle check ever proves fragile.
+
+**Connection drops:** FishNet loads Menu on *any* connection stop, so a drop can reach the menu before
+vanilla's exit fires `onPreSceneChange`. The Menu phase ends a still-open session first, so Session end
+always comes before Menu; the late `onPreSceneChange` is then ignored. Untested (needs co-op).
+
+### `CoreMod` — built
+- Thin entry point: receives MelonLoader's callbacks and hands them to Foundation; no logic, nothing
+  per frame. Version `0.1.0` for the rebuild.
+- Creates the suite-wide debug toggle: MelonPreferences category `MeowcowCore`, entry `DebugLogging`,
+  read once at launch.
 
 ---
 
@@ -124,20 +163,24 @@ public interface IMeowcowModule
 {
     WakeTrigger WakeOn { get; }                    // None, SaveMenu, Session (combinable flags)
 
-    void OnWake() { }                              // once, before anything else
-    void OnSessionStart(SessionInfo session) { }   // every awake module
-    void OnSessionEnd() { }                        // pairs with OnSessionStart
-    void OnBecameCoop() { }                        // once, when a playthrough becomes co-op
-    void OnQuit() { }                              // awake modules only
-
-    object? OnSaving() => null;                    // progress data, asked at each save (host)
+    void OnWake() { }                              // once, before anything else          — built
+    void OnSessionStart(SessionInfo session) { }   // every awake module                  — built
+    void OnSessionEnd() { }                        // pairs with OnSessionStart           — built
+    void OnBecameCoop() { }                        // once, when a playthrough becomes co-op — with play mode
+    object? OnSaving() => null;                    // progress data, asked at each save   — with save management
 }
 ```
+- Default bodies: a module writes only the calls it uses. Core always calls through the interface.
+- Adding a call with a default body (or a property to `SessionInfo`) doesn't break existing modules,
+  so each part arrives with the system that needs it.
 
 ### Identity and registration
 - Name and version come from `MelonInfo`; nothing is declared twice.
-- `CoreModules.Register(this)` in `OnInitializeMelon`; only accepts a class that is both a
-  `MelonMod` and an `IMeowcowModule`.
+- `SuiteModules.Register(this)` in `OnInitializeMelon`. Generic constraint
+  (`where T : MelonMod, IMeowcowModule`), so "must be both" is checked at build time.
+- **Registration doesn't depend on Core having started** (MelonLoader doesn't promise Core initialises
+  first): it only stores the module, and logs through the module's own logger, so its errors appear
+  under its name. A duplicate Id is rejected. Core logs the registered list at the first menu.
 - The `MelonInfo` name is the module Id: it names the settings folder, save data keys and log prefix.
   A mod's name is effectively permanent once released.
 
@@ -162,17 +205,20 @@ public interface IMeowcowModule
 |---|---|---|
 | `OnWake` | First time needed | That module, exactly once |
 | `OnSessionStart` | A game finishes loading | Every awake module |
-| `OnSessionEnd` | Leaving the game | Every module that got `OnSessionStart` |
+| `OnSessionEnd` | Leaving the game | Every module that got `OnSessionStart`, even if it threw (marked before the call, so it can clean up) |
 | `OnBecameCoop` | First time anyone joins the playthrough | Every awake module |
-| `OnQuit` | Game closes | Awake modules only |
+
+- Built so far: waking on `Session`, session start and end. Waking from Meowcow Settings, `SaveMenu`
+  and "another module asks" arrive with those systems.
 
 ### `SessionInfo` (fixed for the session)
 | Value | Meaning | On clients |
 |---|---|---|
-| `IsHost` | This machine runs and saves the game | `false` |
+| `IsHost` | This machine runs and saves the game (FishNet `InstanceFinder.IsServer`) — built | `false` |
 | `Playthrough` | Playthrough folder name | `null` |
 | `SaveMode` | Classic, Modern or Hardcore | `null` |
 
+`Playthrough` and `SaveMode` arrive with save management. Only Core creates a `SessionInfo`.
 Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 
 ### Module save data
@@ -331,9 +377,9 @@ UserData/Meowcow/
         Game/                      what the game loads and saves
         modules.json               module progress data
       Snapshots/                   Modern only
-        Auto/  Panel/  Quick/  Manual - <name>/   (each: Game/ + modules.json)
+        Auto/  Panel/  Quick/  Manual - <name>/   (each: Game/ + modules.json; names chosen by SuiteSaveManager)
   DeletedSaves/                    last 5 deleted playthroughs, data included
-  Core/                            Core's own data (settings, keybind mirror, vanilla-imports.json)
+  MeowcowCore/                     Core's own data (settings, keybind mirror, vanilla-imports.json)
   <ModuleId>/settings.json
 ```
 - The suite's own saves folder; vanilla's folders are never written to. Not split by Steam account.
@@ -422,7 +468,7 @@ without it. `[SOURCE]` vanilla `SetupScreen.StartGame`.
 ### Vanilla saves
 - When Load Game opens and unimported vanilla saves exist, a prompt offers to import them (copied,
   originals untouched). Declined saves are never asked about again; new vanilla saves are.
-- Imports and declines recorded in `Core/vanilla-imports.json` (vanilla slot + creation date).
+- Imports and declines recorded in `MeowcowCore/vanilla-imports.json` (vanilla slot + creation date).
 - Copying runs off the main thread.
 
 ### Delete, export, import
