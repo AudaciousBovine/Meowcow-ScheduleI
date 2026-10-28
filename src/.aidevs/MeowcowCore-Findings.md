@@ -1,88 +1,20 @@
 # MeowcowCore — Findings from the pre-rebuild code
 
-What the old Core (deleted from the `Rebuild` branch) taught us, kept so nothing has to be rediscovered.
-Each section says where in the design doc (`MeowcowCore-Design.md`) it will be used.
+What the old Core (deleted from the `Rebuild` branch) taught us that **isn't built yet**, kept so nothing
+has to be rediscovered. Each section says where in the design doc (`MeowcowCore-Design.md`) it will be used.
 The original code is still on `main`; file names are given as `[SOURCE]` for each finding.
 
 Remove a finding from this doc once it has been built into the new Core.
+Already built (and so removed): the main menu paths and additions, button and text cloning, gamepad
+list registration, layout helpers, the window frame (metrics, pattern, Back, corner prompt, dragging)
+and the one-frame setup delay.
 
 ---
 
-## 1. Vanilla UI paths → SuiteUI `UIPathIndex` (§7)
-
-`[SOURCE]` `Menu/MenuPaths.cs`, found with `SceneDump`.
-
-### Main menu
-| Path | What it is |
-|---|---|
-| `Home` | The home screen: a `MenuScreen` with `OpenOnStart` |
-| `Home/Bank/Panel` | The button list |
-| `Home/Bank/Title/Text` | The version text under the logo |
-| `<button>/ButtonText` | A list button's label |
-| `<button>/ButtonText Highlighted Position` | Where the label slides to on hover (its X offset is the slide distance; 15 if missing) |
-| `<button>/Shine` | The bar that fades in on hover |
-| `Bank/Panel/Settings` | The Settings button (the clone source for new list buttons) |
-
-- **Finding Home reliably:** a `MenuScreen` with `OpenOnStart == true`, `PreviousScreen == null` and name `Home`.
-
-### Lobby panel
-| Path | What it is |
-|---|---|
-| `LobbyInterface.Container/Entries` | The invite button and player slots |
-| `LobbyInterface.LobbyTitle` | The title text ("Lobby (n/4)") |
-
-### Framed screens (Settings, Load Game, New Game)
-Children of the screen's root:
-| Path | What it is |
-|---|---|
-| `Background` | Window background image |
-| `Background/Image` | The pattern behind, 1000×842 in vanilla |
-| `Title` | Title text |
-| `TabsPanel` / `TabsPanel/TabsLayout` | Tab strip and its layout group |
-| `Content` | Content area image |
-| `Left bumper prompt` / `Right bumper prompt` | Gamepad LB/RB prompts |
-| `<tab>/Background`, `<tab>/Checkmark`, `<tab>/Label` | Each tab; `Checkmark` shows when selected |
-
-### Other pieces
-| Name | What it is |
-|---|---|
-| `Import` (a `Button` with a TMP label) | The save slots' dark small button: the style source for Back |
-| `BottomLeftMenuPivot` | The loose "Esc Back" prompt in the screen corner, on the menu's prompt canvas |
-
----
-
-## 2. UI techniques → SuiteUI `UIBuilder` / `UITemplateRegistry` (§7)
-
-### Cloning buttons
-- **A cloned button keeps vanilla's scene wiring** (e.g. Settings → `SettingsScreen.Open`).
-  `RemoveAllListeners` can't clear persistent calls; **replace the event**:
-  `button.onClick = new Button.ButtonClickedEvent();` `[SOURCE]` `Menu/OptionsButton.cs`
-- **Strip behaviours, keep the look:** destroy every `MonoBehaviour` that isn't a `Graphic` or
-  `Selectable`. Removes scripts like the Import button's import logic. `[SOURCE]` `Menu/WindowFrame.cs`
-- **Cloning the version text:** remove its version script, or it overwrites the text with the game
-  version. `[SOURCE]` `Menu/MainMenu.cs`
-- New list labels: set `enableWordWrapping = false`.
-
-### Gamepad navigation
-- New list buttons must be added to the list's `UIPanel.selectables`, right after the button they
-  follow. **Remove first** (`selectables.Remove(added)`), since a clone may self-register on Awake;
-  fall back to `AddSelectable` if the anchor isn't found. `[SOURCE]` `Menu/OptionsButton.cs`
-
-### Layout
-- **A GameObject can't hold two layout groups.** Destroy the `HorizontalLayoutGroup`
-  (`DestroyImmediate`) before adding a `VerticalLayoutGroup`. `[SOURCE]` `Menu/WindowFrame.cs`
-- Growing the menu list by one button: height += button height + group spacing, shifted by the pivot
-  so the top edge stays put. If the group doesn't control child width, widen children manually.
-  `[SOURCE]` `Menu/OptionsButton.cs`
-- **Change anchors without moving a rect:** save `rect.size` and world `position`, set anchors, then
-  restore `sizeDelta` and `position`. `[SOURCE]` `Menu/UiTools.cs` (`SetAnchorKeepRect`)
-- **Measure text by its letters, not its box:** `ForceMeshUpdate()` then `textBounds`; fall back to the
-  rect if the bounds are empty. Used to line one label up exactly after another. `[SOURCE]` `Menu/UiTools.cs` (`VisibleRect`)
-- **Pointer over a rect, any canvas:** walk up to the root canvas; pass its `worldCamera` unless it's
-  `ScreenSpaceOverlay` (then `null`) to `RectTransformUtility.RectangleContainsScreenPoint`. `[SOURCE]` `Menu/UiTools.cs` (`ContainsPointer`)
-- **Screen pixels → canvas units:** divide by the root canvas's `scaleFactor`. `[SOURCE]` `Menu/WindowFrame.cs`
+## 1. UI techniques not yet used → SuiteUI (§7)
 
 ### Hover shine
+- Path: `<list button>/Shine`, the bar that fades in on hover. `[SOURCE]` `Menu/MenuPaths.cs`
 - Vanilla's shine sprite has a **hard edge on one side** and fades to the other. A centred shine is two
   halves: left half flipped with `localScale.x = -1`, right half normal, hard edges meeting in the middle.
   `raycastTarget = false` on both. `[SOURCE]` `Menu/UiTools.cs` (`CreateShineHalf`)
@@ -93,52 +25,27 @@ Children of the screen's root:
   `[SOURCE]` `Menu/LobbyToggle.cs`
 - `[PERFORMANCE]` the fade ran every frame; the new version should only tick while hovered or fading.
 
-### Timing
-- **Set up one frame after the scene initialises** (a coroutine with `yield return null`), so vanilla's
-  `Awake`/`Start` have run. `[SOURCE]` `Menu/MainMenu.cs`, `Menu/LobbyToggle.cs`
+### Pointer
+- **Pointer over a rect, any canvas:** walk up to the root canvas; pass its `worldCamera` unless it's
+  `ScreenSpaceOverlay` (then `null`) to `RectTransformUtility.RectangleContainsScreenPoint`. `[SOURCE]` `Menu/UiTools.cs` (`ContainsPointer`)
 
 ---
 
-## 3. Window frame → SuiteUI `MeowcowWindow` (§7)
+## 2. Main menu and window extras → SuiteUI (§7), Themes (§14)
 
-`[SOURCE]` `Menu/WindowFrame.cs`. Restyled vanilla framed screens in place; left a screen vanilla if
-any expected piece was missing.
-
-- **Metrics that looked right** (canvas units, 1920×1080 reference): margin 20, title bar 70 (also the
-  drag handle), footer 50, tab column 170 wide, tabs 34 tall with 4 spacing, a 30-unit row above the tabs
-  for the bumper prompts (placed side by side, 30 apart). Default window 1100×700, capped to the canvas.
-- **Pattern:** scale the original 1000×842 pattern to cover the bigger window, keeping its shape
-  (`max(w/pw, h/ph, 1) × 1.05`).
-- **Dragging:** mouse down on the title starts a drag; position is centre-anchored, clamped so the whole
-  window stays on screen, rounded and saved on release. **Double-click the title (0.3 s) to recentre.**
-- **Back button:** a clone of the dark `Import` button, 120×30 at the footer's left, text
-  `<color=#9A9A9A>Esc</color>   Back`; closes whichever framed screen `IsOpen` via `MenuScreen.Close()`.
-  If the style source is missing, no button (Escape still works).
-- **Corner prompt:** hide `BottomLeftMenuPivot` while a framed window is open; restore it only if it
-  was active before.
 - **Colours:** recorded from vanilla at build time (background, content, title, tab, tab selected via
   `Checkmark`, tab text, Back text) so a style override can always fall back to vanilla.
-
----
-
-## 4. Main menu → Main menu (§13)
-
-`[SOURCE]` `Menu/MainMenu.cs`, `Menu/OptionsButton.cs`
-
-- New list button: clone Settings, insert at Settings' sibling index + 1, then grow the list (§2).
-- **Meowcow Suite label:** a clone of the version text, reparented straight under `Home` (so moving the
-  logo or version never drags it), anchored bottom-left with `SetAnchorKeepRect`, left-aligned, no wrap,
-  overflow on, placed 8 units after the version's last letter (measured with `VisibleRect`).
-  Colour `#FF66CC`.
 - A `Ready` event after Core's additions let other mods record the menu's "vanilla" state including them.
   Useful pattern for live element handles.
 
 ---
 
-## 5. Lobby → Play mode (§6) and Main menu (§13)
+## 3. Lobby → Play mode (§6) and Main menu (§13)
 
 `[SOURCE]` `Menu/LobbyToggle.cs`, `PlayMode.cs`
 
+- **Paths:** `LobbyInterface.Container/Entries` (invite button and player slots),
+  `LobbyInterface.LobbyTitle` (the "Lobby (n/4)" text). `[SOURCE]` `Menu/MenuPaths.cs`
 - **The lobby panel exists in the main menu and in game scenes** (the pause menu).
 - **Lobby events:** `Lobby.add_OnLobbyChange(Il2CppSystem.Action)`; read `Lobby.PlayerCount`
   (clamp to at least 1). Convert with `DelegateSupport.ConvertDelegate` and keep the delegate referenced.
@@ -154,7 +61,7 @@ any expected piece was missing.
 
 ---
 
-## 6. Settings files → SuiteSettings (§8)
+## 4. Settings files → SuiteSettings (§8)
 
 `[SOURCE]` `Settings/SettingsFile.cs`, `Settings/SettingsModel.cs`, `Settings/ColorHex.cs`
 
@@ -175,14 +82,13 @@ any expected piece was missing.
 
 ---
 
-## 7. Debug tools → SuiteUI (§7), or a debug area
+## 5. Debug tools → SuiteUI (§7), or a debug area
 
 `[SOURCE]` `Diagnostics/SceneDump.cs`
 
-- **SceneDump** wrote every root canvas in the loaded scenes to a text file: path, active state,
+- `UIBuilder.DumpHierarchy` now covers one object at a time (debug log). The old **SceneDump** went
+  further, if that is ever needed again: it wrote every root canvas in the loaded scenes to a text file: path, active state,
   components, `RectTransform` layout, text (legacy and TMP, cut at 120 characters), `MenuScreen`
   settings, and each button's persistent `onClick` targets.
 - Triggered by a MelonPreferences key (default F11, Ctrl required).
-- **IL2CPP note:** generic `GetComponentInParent(bool)` fails under Il2CppInterop; walk up the parents
-  by hand.
 - `[PERFORMANCE]` heavy (walks every UI object); debug only, never automatic.

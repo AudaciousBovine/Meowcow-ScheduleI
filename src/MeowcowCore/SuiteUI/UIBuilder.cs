@@ -91,6 +91,55 @@ public static class UIBuilder
     }
 
     /// <summary>
+    /// A copy of a button that keeps only its look: every script except graphics and the button itself is
+    /// removed (so e.g. the Import button no longer imports), its label is set, and clicks run
+    /// <paramref name="onClick"/>.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New for the window's Back button. Vanilla's gamepad selectable is removed too: a button
+    /// like Back is reached with Escape or B instead.
+    /// [SOURCE] Findings doc §2 (strip behaviours, keep the look).
+    /// [PERFORMANCE] One clone and one pass over its components.
+    /// </remarks>
+    public static Button CloneButton(Button source, Transform parent, string name, string label, Action onClick)
+    {
+        GameObject go = UObject.Instantiate(source.gameObject, parent);
+        go.name = name;
+
+        foreach (MonoBehaviour behaviour in go.GetComponentsInChildren<MonoBehaviour>(true))
+        {
+            if (behaviour.TryCast<Graphic>() != null || behaviour.TryCast<Selectable>() != null) continue;
+            UObject.DestroyImmediate(behaviour);
+        }
+
+        var labels = go.GetComponentsInChildren<TMP_Text>(true);
+        if (labels.Length > 0)
+        {
+            labels[0].text = label;
+            labels[0].enableWordWrapping = false;
+        }
+
+        Button button = go.GetComponent<Button>();
+        SetClick(button, onClick);
+        return button;
+    }
+
+    /// <summary>
+    /// The root canvas above a UI object, or null. Walks up by hand: under IL2CPP, the generic
+    /// GetComponentInParent with includeInactive fails (findings doc §7).
+    /// </summary>
+    public static Canvas? RootCanvas(Transform from)
+    {
+        Canvas? found = null;
+        for (Transform? t = from; t != null; t = t.parent)
+        {
+            Canvas? canvas = t.GetComponent<Canvas>();
+            if (canvas != null) found = canvas;
+        }
+        return found;
+    }
+
+    /// <summary>
     /// Replaces a button's click handling with one handler. Replaces the whole event: a cloned button keeps
     /// vanilla's scene wiring (e.g. Settings → <c>SettingsScreen.Open</c>), which <c>RemoveAllListeners</c>
     /// can't clear.

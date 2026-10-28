@@ -1,9 +1,10 @@
 # MeowcowCore — Design
 
 Status: **agreed design.** Supersedes `MeowcowCore-DesignPlan.md`.
-Built and tested in-game: **Foundation** (`MeowcowLogger`, `CorePathIndex`, `CoreLifecycle`, `CoreMod`)
-and the first part of **ModuleApi** (`IMeowcowModule`, `WakeTrigger`, `SessionInfo`, `SuiteModules`).
-Everything else is design only.
+Built and tested in-game: **Foundation** (`MeowcowLogger`, `CorePathIndex`, `CoreLifecycle`, `CoreMod`),
+the first part of **ModuleApi** (`IMeowcowModule`, `WakeTrigger`, `SessionInfo`, `SuiteModules`), the first
+part of **SuiteUI** (`UIPathIndex`, `UIBuilder`, `MeowcowWindow`) and the **main menu** additions
+(`Menus/MainMenu`). Everything else is design only.
 Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Findings.md`.
 
 ---
@@ -73,12 +74,16 @@ MeowcowCore/
   Foundation/             MeowcowLogger, CorePathIndex, CoreLifecycle
   ModuleApi/              IMeowcowModule, WakeTrigger, SessionInfo, SuiteModules
   SuiteUI/                UIPathIndex, UITemplateRegistry, UIStyle, UIBuilder, MeowcowWindow
+  Menus/                  how vanilla menus are changed: MainMenu, later SaveMenu, SettingsMenu
   SuiteSettings/          setting declarations, store, scopes, lobby sync, keybind registry
   SuiteSaveManagement/    SuiteSaveManager, playthroughs, snapshots, new game, import
   Patches/                Harmony patches (*Patch)
 ```
 - `Suite` prefix marks systems that parallel a vanilla one, to avoid confusion.
 - Namespaces follow folders. Folders are created only when their first file is written.
+- **`Menus/` holds the screens; the systems hold the logic.** "How does this menu look and behave" is in
+  `Menus/` (e.g. the save menu's screens); "what does it do with data" is in the system (e.g.
+  `SuiteSaveManagement` keeps playthroughs and file work). `SuiteUI` is the toolkit both use.
 - `src/MeowcowTestModule/`: dev-only module that logs every call and can fail on purpose (waking,
   retries, isolation). Never shipped; deleted once Mirror runs on the new Core.
 
@@ -263,14 +268,14 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 ## 7. SuiteUI
 
 ### Parts
-| Part | Role |
-|---|---|
-| `UIPathIndex` | The only place that knows where vanilla UI lives. |
-| `UITemplateRegistry` | Captured vanilla templates: inactive, persistent, listeners stripped. |
-| `UIStyle` | Semantic style tokens (`button.primary`, `tab.selected`, `text.error`, ...). |
-| Live elements | Named handles to live UI (`mainmenu.header`, `mainmenu.lobby`, ...) for Themes. |
-| `UIBuilder` | The only way mods create UI. |
-| `MeowcowWindow` | The shared window: left tabs, top subtabs, scroll area, Back at bottom-left showing the key, draggable, gamepad navigation. |
+| Part | Role | Status |
+|---|---|---|
+| `UIPathIndex` | The only place that knows where vanilla UI lives (paths, and finding Home, the Settings screen, the Import button). | Built (main menu and window paths) |
+| `UIBuilder` | The only way mods create UI: list buttons, text labels, buttons (look kept, scripts stripped), click handlers, layout helpers, debug hierarchy dump. | Built (what the main menu and window need) |
+| `MeowcowWindow` | The shared window: left tabs, scroll pages, Back at bottom-left, draggable, gamepad navigation. | Built (no subtabs yet) |
+| `UITemplateRegistry` | Captured vanilla templates: inactive, persistent, listeners stripped. | When a piece is needed outside its own scene |
+| `UIStyle` | Semantic style tokens (`button.primary`, `tab.selected`, `text.error`, ...). | With Themes |
+| Live elements | Named handles to live UI (`mainmenu.header`, `mainmenu.lobby`, ...) for Themes. | With Themes |
 
 `[SOURCE]` LilithsEngine `LUIAssets`; Mirror's `VanillaOptions` single-place rule.
 
@@ -283,6 +288,39 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 - Used by vanilla Settings, Meowcow Settings, the save menu, and Mirror's creator.
 - **Vanilla menus are restyled in place** (vanilla components kept). `[SOURCE]` Mirror's `CreatorLayoutBuilder`.
 - **New menus are built fresh.**
+
+### `UIBuilder` rules
+- **Cloned buttons get a fresh click event:** a clone keeps vanilla's scene wiring, which
+  `RemoveAllListeners` can't clear.
+- **Click handlers are converted once per handler and cached** (IL2CPP rule), and every click runs in a
+  try/catch, since it comes from native code.
+- `UIBuilder` throws on missing pieces; the menu using it catches and falls back.
+
+### `MeowcowWindow` — built
+- **A clone of vanilla's Settings screen** (main menu for now; the pause menu later). Gives vanilla's
+  look, open/close fade, Escape (returns to `PreviousScreen`), gamepad focus and LB/RB tab cycling.
+- **Built safely:** cloned inside an inactive staging object, so nothing on the clone runs until
+  `SettingsScreen` (a `MenuScreen` subclass) has been swapped for a plain `MenuScreen` with its
+  behaviour fields copied. Then one activation runs `Awake` exactly as vanilla's screen does.
+- **Checks** that the clone's `MonoState` and fade group are its own; otherwise not built (it could
+  open vanilla Settings instead). The `MonoState`'s default parent is the scene's shared state machine,
+  as intended.
+- **Detach gamepad panels before destroying anything:** vanilla's `UIScreen` keeps a panel list and
+  crashes on destroyed panels when opened. Removing must happen *before* destroying, since
+  `RemovePanel`'s Unity `==` treats a destroyed panel as null.
+- **Layout:** 1100×700 capped to the screen; title bar 70 (drag handle), footer 50, tabs 170 wide in a
+  vertical list level with the content's top, LB/RB centred above the first tab, pages padded 10.
+  Pattern scaled to cover. `[SOURCE]` pre-rebuild window frame.
+- **Tabs:** `AddTab(label)` returns the page's scroll content. Vanilla's `UITab` cycles by direction,
+  so the strip is set to vertical (`reverseCycleDirection` so RB moves down). The window selects the
+  tab strip on open (vanilla's `SettingsScreen.OnEnable` did this).
+- **Back:** a clone of the save slots' `Import` button, scripts stripped, one shared static handler
+  closing `MenuScreen.Current`. No style source (in-game): no button; Escape still works.
+- **Corner prompt** (`BottomLeftMenuPivot`) hidden while open, via the `MonoState`'s top-sibling events.
+- **Dragging** by Unity pointer events on the title; kept on screen; position remembered for the run
+  (saved with SuiteSettings later). **Double-click recentres**, with our own detection: Unity counts
+  releasing a drag as a click when one object handles both, so `clickCount` misfired.
+- Built on first open, rebuilt after a scene change. `[PERFORMANCE]` nothing per frame.
 
 ### Resilience
 - **Automatic fallback:** if Core can't build a menu, it stays vanilla and a warning is logged.
@@ -534,7 +572,9 @@ replaces vanilla's routine:
 ## 13. Main menu
 
 - Skip logo and skip disclaimer (when enabled).
-- Adds Meowcow Settings to the menu and a Meowcow Suite tag below the game logo.
+- Adds Meowcow Settings after Settings and a pink Meowcow Suite tag just after the version text under
+  the logo. **Built**, in `Menus/MainMenu`, one frame after the Menu phase; each addition falls back
+  separately. The button opens the Meowcow Settings window (placeholder tabs until SuiteSettings).
 - Renames vanilla Continue to **Load Game**; adds a new **Continue** (internally `ContinueLastSave`).
 - Order: Continue, Load Game, New Game, Settings, Meowcow Settings, Credits, Quit.
 - Lobby label click toggles Solo/Co-op intent.

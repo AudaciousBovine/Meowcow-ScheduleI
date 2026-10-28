@@ -5,6 +5,7 @@ using Il2CppTMPro;
 using MeowcowCore.Foundation;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using MenuScreen = Il2CppScheduleOne.UI.MainMenu.MenuScreen;
 using SettingsScreen = Il2CppScheduleOne.UI.MainMenu.SettingsScreen;
@@ -23,8 +24,9 @@ namespace MeowcowCore.SuiteUI;
 /// Tabs run down the left side; each has its own scrolling page.
 /// </summary>
 /// <remarks>
-/// [CHANGED] Slice 2b: vertical tabs and pages, vanilla leftovers removed, the tab strip selected on open.
-/// Back button and dragging come in 2c.
+/// [CHANGED] Slice 2c: 1100×700 frame, tabs level with the content, LB/RB centred above the first tab,
+/// Back button, corner prompt hidden while open, dragging by the title (double-click recentres).
+/// Everything is event-driven: nothing runs per frame.
 /// How the clone stays safe: it's made inside an inactive parent, so no vanilla code runs on it until
 /// the settings script has been swapped for a plain <c>MenuScreen</c>.
 /// [SOURCE] Vanilla <c>MenuScreen</c>, <c>SettingsScreen</c>, <c>MonoState</c>, <c>UIScreen</c>, <c>UITab</c>;
@@ -34,13 +36,23 @@ public sealed class MeowcowWindow
 {
     // Layout, in canvas units (1920×1080 reference). [SOURCE] findings doc §3.
     private const float Margin = 20f;        // inner padding
-    private const float TitleHeight = 70f;   // title bar (the drag handle in 2c)
-    private const float FooterHeight = 50f;  // room for the Back button (2c)
+    private const float TitleHeight = 70f;   // title bar, also the drag handle
+    private const float FooterHeight = 50f;  // room for the Back button
     private const float TabWidth = 170f;
     private const float TabHeight = 34f;
     private const float TabSpacing = 4f;
-    private const float BumperRow = 30f;     // above the tabs, for the LB/RB prompts (gamepad only)
     private const float PagePadding = 10f;   // between the content area's edge and a page
+    private const float BumperGap = 8f;      // between the LB and RB prompts
+    private const float BackWidth = 120f;
+    private const float BackHeight = 30f;
+    private const string BackLabel = "<color=#9A9A9A>Esc</color>   Back";
+
+    // [CHANGED] The larger frame from the pre-rebuild window, capped to the screen.
+    private static readonly Vector2 DefaultSize = new(1100f, 700f);
+
+    // Where each window was last dragged, by object name. For this run only: saving it between runs
+    // needs SuiteSettings.
+    private static readonly Dictionary<string, Vector2> RememberedPositions = new();
 
     private static readonly MeowcowLogger Log = CoreMod.Log.Tagged("Window");
 
@@ -66,6 +78,20 @@ public sealed class MeowcowWindow
     }
 
     private readonly List<Tab> _tabs = new();
+
+    // Event handlers, kept referenced (IL2CPP rule for converted delegates).
+    private readonly List<Il2CppSystem.Object> _handlers = new();
+
+    private RectTransform? _root;
+    private float _canvasScale = 1f;
+    private GameObject? _cornerPrompt;
+    private bool _cornerPromptWasActive;
+
+    // [CHANGED] Our own double-click tracking (see OnTitleClick).
+    private const float DoubleClickTime = 0.25f;     // seconds between the two clicks
+    private const float DoubleClickDistance = 10f;   // screen pixels between the two clicks
+    private float _lastClickTime = -1f;
+    private Vector2 _lastClickPosition;
     private readonly UITab _tabStrip;
     private readonly RectTransform _tabsLayout;
     private readonly GameObject _tabTemplate;
@@ -264,6 +290,7 @@ public sealed class MeowcowWindow
             clone.SetActive(false);
             clone.transform.SetParent(source.transform.parent, false);
             clone.transform.SetSiblingIndex(source.transform.GetSiblingIndex() + 1);
+            window.SizeAndPlace(clone.transform.TryCast<RectTransform>()!, objectName);
             clone.SetActive(true);
 
             Log.Debug($"Built '{objectName}'");
@@ -322,13 +349,17 @@ public sealed class MeowcowWindow
         TMP_Text? titleText = root.Find(UIPathIndex.WindowTitle)?.GetComponent<TMP_Text>();
         if (titleText != null) titleText.text = title;
 
-        LayOut(root, tabsPanel, tabsLayout, content);
+        LayOut(root, tabsPanel, tabsLayout, content, titleText);
 
         // Tabs now run top to bottom, so LB/RB must cycle vertically. RB moves down the list.
         tabStrip.cycleDirection = UITab.CycleDirection.Vertical;
         tabStrip.reverseCycleDirection = true;
 
-        return new MeowcowWindow(screen, content, titleText, tabStrip, tabsLayout, tabTemplate, pageTemplate);
+        var window = new MeowcowWindow(screen, content, titleText, tabStrip, tabsLayout, tabTemplate, pageTemplate);
+        window.AddBackButton(root);
+        window.HookOpenClose();
+        if (titleText != null) window.MakeDraggable(titleText);
+        return window;
     }
 
     /// <summary>One of vanilla's tabs, moved out of the list and switched off, to clone our tabs from.</summary>
@@ -390,13 +421,20 @@ public sealed class MeowcowWindow
 
     /// <summary>
     /// The frame: tabs in a column on the left (bumper prompts above them), content to their right, room
-    /// for the title above and the footer below. The window keeps vanilla's size for now.
+    /// for the title above and the footer below. The window itself is sized in SizeAndPlace.
     /// </summary>
-    private static void LayOut(Transform root, RectTransform tabsPanel, RectTransform tabsLayout, RectTransform content)
+    private static void LayOut(Transform root, RectTransform tabsPanel, RectTransform tabsLayout, RectTransform content,
+        TMP_Text? title)
     {
-        float top = TitleHeight + BumperRow;
+        // [CHANGED] The background fills the window, and the title spans its top: it's the drag handle.
+        RectTransform? background = root.Find(UIPathIndex.WindowBackground)?.TryCast<RectTransform>();
+        if (background != null) SetRect(background, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        if (title != null)
+            SetRect(title.rectTransform, new Vector2(0f, 1f), Vector2.one, new Vector2(0f, -TitleHeight), Vector2.zero);
+
+        // [CHANGED] Tabs start level with the content (no bumper row any more).
         SetRect(tabsPanel, new Vector2(0f, 0f), new Vector2(0f, 1f),
-            new Vector2(Margin, FooterHeight), new Vector2(Margin + TabWidth, -top));
+            new Vector2(Margin, FooterHeight), new Vector2(Margin + TabWidth, -TitleHeight));
 
         SetRect(content, Vector2.zero, Vector2.one,
             new Vector2(Margin + TabWidth + Margin, FooterHeight), new Vector2(-Margin, -TitleHeight));
@@ -413,11 +451,15 @@ public sealed class MeowcowWindow
         vertical.childForceExpandWidth = true;
         vertical.childForceExpandHeight = false;
 
-        // LB and RB prompts side by side above the tabs: LB at the column's left, RB at its right.
-        PlaceBumper(root, UIPathIndex.WindowLeftBumper, new Vector2(0f, 1f), Margin);
-        PlaceBumper(root, UIPathIndex.WindowRightBumper, new Vector2(1f, 1f), Margin + TabWidth);
+        // [CHANGED] LB and RB side by side, the pair centred over the tab column, sitting on top of the
+        // first tab (the bottom of the title bar; the title text is centred over the whole window, so
+        // they don't overlap). LB's right edge and RB's left edge meet at the column's centre, minus a gap.
+        float centre = Margin + TabWidth / 2f;
+        PlaceBumper(root, UIPathIndex.WindowLeftBumper, new Vector2(1f, 0f), centre - BumperGap / 2f);
+        PlaceBumper(root, UIPathIndex.WindowRightBumper, new Vector2(0f, 0f), centre + BumperGap / 2f);
     }
 
+    /// <summary>Places a bumper prompt by its pivot, with its bottom on the title bar's bottom edge.</summary>
     private static void PlaceBumper(Transform root, string name, Vector2 pivot, float x)
     {
         RectTransform? prompt = root.Find(name)?.TryCast<RectTransform>();
@@ -428,6 +470,244 @@ public sealed class MeowcowWindow
         prompt.pivot = pivot;
         prompt.sizeDelta = size;
         prompt.anchoredPosition = new Vector2(x, -TitleHeight);
+    }
+
+    // ---------- Size and position ----------
+
+    /// <summary>
+    /// 1100×700 (capped to the screen), centred on the screen or where it was last dragged this run.
+    /// The pattern behind the window is scaled to cover it.
+    /// </summary>
+    /// <remarks>[CHANGED] New in 2c. Runs once the window is in the real UI, where the canvas is known.</remarks>
+    private void SizeAndPlace(RectTransform root, string objectName)
+    {
+        _root = root;
+        Canvas? canvas = UIBuilder.RootCanvas(root);
+        if (canvas != null && canvas.scaleFactor > 0f) _canvasScale = canvas.scaleFactor;
+
+        Vector2 available = canvas != null
+            ? canvas.GetComponent<RectTransform>().rect.size - new Vector2(Margin * 2f, Margin * 2f)
+            : DefaultSize;
+        Vector2 size = Vector2.Min(DefaultSize, available);
+
+        root.anchorMin = new Vector2(0.5f, 0.5f);
+        root.anchorMax = new Vector2(0.5f, 0.5f);
+        root.pivot = new Vector2(0.5f, 0.5f);
+        root.sizeDelta = size;
+        root.anchoredPosition = Clamp(RememberedPositions.TryGetValue(objectName, out Vector2 saved) ? saved : Vector2.zero);
+
+        // The pattern keeps its shape and covers the bigger window. [SOURCE] findings doc §3.
+        RectTransform? pattern = root.Find(UIPathIndex.WindowPattern)?.TryCast<RectTransform>();
+        if (pattern != null)
+        {
+            Vector2 original = pattern.rect.size;
+            if (original.x > 0f && original.y > 0f)
+            {
+                float scale = Mathf.Max(size.x / original.x, size.y / original.y, 1f) * 1.05f;
+                pattern.sizeDelta = original * scale;
+            }
+        }
+    }
+
+    /// <summary>Keeps the whole window on screen: a centre position limited by half the free space.</summary>
+    private Vector2 Clamp(Vector2 position)
+    {
+        if (_root == null) return position;
+        RectTransform? parent = _root.parent?.TryCast<RectTransform>();
+        if (parent == null) return position;
+
+        Vector2 room = (parent.rect.size - _root.rect.size) / 2f;
+        room = Vector2.Max(room, Vector2.zero);
+        return new Vector2(Mathf.Clamp(position.x, -room.x, room.x), Mathf.Clamp(position.y, -room.y, room.y));
+    }
+
+    // ---------- Back button ----------
+
+    /// <summary>
+    /// Back in the footer's left corner, styled like the save slots' Import button. Without the style
+    /// source (e.g. in-game), there's no button; Escape still closes the window.
+    /// </summary>
+    /// <remarks>[CHANGED] New in 2c. [SOURCE] Findings doc §3 (Back button).</remarks>
+    private void AddBackButton(Transform root)
+    {
+        Button? style = UIPathIndex.FindImportButton();
+        if (style == null)
+        {
+            Log.Debug("No Import button to copy; window has no Back button (Escape still works)");
+            return;
+        }
+
+        Button back = UIBuilder.CloneButton(style, root, "Back", BackLabel, CloseCurrentScreen);
+        RectTransform rect = back.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.zero;
+        rect.pivot = Vector2.zero;
+        rect.sizeDelta = new Vector2(BackWidth, BackHeight);
+        rect.anchoredPosition = new Vector2(Margin, (FooterHeight - BackHeight) / 2f);
+    }
+
+    /// <summary>
+    /// Closes whichever screen is open: a Back button can only be clicked on the open window. Static, so
+    /// one click handler serves every window and every rebuild.
+    /// </summary>
+    private static void CloseCurrentScreen()
+    {
+        MenuScreen? current = MenuScreen.Current;
+        if (current != null) current.Close();
+    }
+
+    // ---------- Open and close ----------
+
+    /// <summary>
+    /// Follows the screen's own open and close (whatever caused them, Escape included) to hide vanilla's
+    /// corner "Esc Back" prompt while the window is open, so there aren't two.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New in 2c. Uses the state's events rather than checking every frame.
+    /// [SOURCE] Vanilla <c>MonoState</c> (OnBecomeTopSibling / OnNoLongerTopSibling drive MenuScreen's own open/close).
+    /// </remarks>
+    private void HookOpenClose()
+    {
+        Il2CppSystem.Action opened = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(new Action(OnOpened))
+            ?? throw new InvalidOperationException("Couldn't convert the open handler for IL2CPP");
+        Il2CppSystem.Action closed = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(new Action(OnClosed))
+            ?? throw new InvalidOperationException("Couldn't convert the close handler for IL2CPP");
+        _handlers.Add(opened);
+        _handlers.Add(closed);
+        Screen.State.add_OnBecomeTopSibling(opened);
+        Screen.State.add_OnNoLongerTopSibling(closed);
+    }
+
+    /// <summary>Called from native code: exceptions must never escape.</summary>
+    private void OnOpened()
+    {
+        try
+        {
+            // Looked up on each open: the prompt belongs to the menu, which is rebuilt per scene.
+            _cornerPrompt = GameObject.Find(UIPathIndex.MenuCornerPrompt);
+            _cornerPromptWasActive = _cornerPrompt != null && _cornerPrompt.activeSelf;
+            if (_cornerPromptWasActive) _cornerPrompt!.SetActive(false);
+        }
+        catch (Exception e)
+        {
+            Log.Error("Window open handling failed", e);
+        }
+    }
+
+    /// <summary>Called from native code: exceptions must never escape.</summary>
+    private void OnClosed()
+    {
+        try
+        {
+            // Only restored if it was showing before, so a prompt hidden by vanilla stays hidden.
+            if (_cornerPromptWasActive && _cornerPrompt != null) _cornerPrompt.SetActive(true);
+            _cornerPromptWasActive = false;
+        }
+        catch (Exception e)
+        {
+            Log.Error("Window close handling failed", e);
+        }
+    }
+
+    // ---------- Dragging ----------
+
+    /// <summary>
+    /// Drag the window by its title; double-click the title to recentre it. Uses Unity's pointer events
+    /// on the title, so nothing runs unless the title is being dragged or clicked.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New in 2c (the pre-rebuild frame checked the mouse every frame).
+    /// [PERFORMANCE] One small move per drag event; no per-frame cost.
+    /// </remarks>
+    private void MakeDraggable(TMP_Text title)
+    {
+        title.raycastTarget = true; // text ignores the pointer by default
+        EventTrigger trigger = title.gameObject.GetComponent<EventTrigger>() ?? title.gameObject.AddComponent<EventTrigger>();
+        AddTrigger(trigger, EventTriggerType.BeginDrag, _ => _lastClickTime = -1f); // a drag breaks a double-click
+        AddTrigger(trigger, EventTriggerType.Drag, OnDrag);
+        AddTrigger(trigger, EventTriggerType.EndDrag, _ => Remember());
+        AddTrigger(trigger, EventTriggerType.PointerClick, OnTitleClick);
+    }
+
+    private void AddTrigger(EventTrigger trigger, EventTriggerType type, Action<BaseEventData> handler)
+    {
+        UnityAction<BaseEventData> converted = DelegateSupport.ConvertDelegate<UnityAction<BaseEventData>>(
+                new Action<BaseEventData>(data => RunEvent(handler, data)))
+            ?? throw new InvalidOperationException("Couldn't convert a drag handler for IL2CPP");
+        _handlers.Add(converted);
+
+        var entry = new EventTrigger.Entry { eventID = type };
+        entry.callback.AddListener(converted);
+        trigger.triggers.Add(entry);
+    }
+
+    /// <summary>Pointer events come from native code: exceptions must never escape.</summary>
+    private static void RunEvent(Action<BaseEventData> handler, BaseEventData data)
+    {
+        try
+        {
+            handler(data);
+        }
+        catch (Exception e)
+        {
+            Log.Error("Window drag handling failed", e);
+        }
+    }
+
+    /// <summary>Moves the window with the pointer; screen pixels become canvas units via the canvas scale.</summary>
+    private void OnDrag(BaseEventData data)
+    {
+        PointerEventData? pointer = data.TryCast<PointerEventData>();
+        if (pointer == null || _root == null) return;
+        _root.anchoredPosition = Clamp(_root.anchoredPosition + pointer.delta / _canvasScale);
+    }
+
+    /// <summary>
+    /// A real double-click on the title recentres the window: two clicks, neither of them ending a drag,
+    /// within 0.25 s and 10 px of each other.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] Was Unity's <c>clickCount</c>, which recentred the window at random while dragging quickly:
+    /// the title handles both the drag and the click, so Unity counts releasing a drag as a click, and two
+    /// quick drags (0.3 s apart) looked like a double-click.
+    /// [PERFORMANCE] A time and distance check per click.
+    /// </remarks>
+    private void OnTitleClick(BaseEventData data)
+    {
+        PointerEventData? pointer = data.TryCast<PointerEventData>();
+        if (pointer == null || _root == null) return;
+
+        // Still flagged as dragging when the click arrives, so a drag's release is recognised and ignored.
+        if (pointer.dragging)
+        {
+            _lastClickTime = -1f;
+            return;
+        }
+
+        float now = Time.unscaledTime;
+        bool isDouble = _lastClickTime >= 0f
+            && now - _lastClickTime <= DoubleClickTime
+            && (pointer.position - _lastClickPosition).sqrMagnitude <= DoubleClickDistance * DoubleClickDistance;
+
+        if (!isDouble)
+        {
+            _lastClickTime = now;
+            _lastClickPosition = pointer.position;
+            return;
+        }
+
+        _lastClickTime = -1f;
+        _root.anchoredPosition = Vector2.zero;
+        Remember();
+    }
+
+    /// <summary>Remembers the position for this run, rounded to whole units.</summary>
+    private void Remember()
+    {
+        if (_root == null) return;
+        Vector2 position = new(Mathf.Round(_root.anchoredPosition.x), Mathf.Round(_root.anchoredPosition.y));
+        _root.anchoredPosition = position;
+        RememberedPositions[_root.name] = position;
     }
 
     /// <summary>Sets anchors and edge offsets in one call.</summary>

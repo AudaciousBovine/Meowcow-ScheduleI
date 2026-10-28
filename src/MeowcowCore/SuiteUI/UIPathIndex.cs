@@ -1,5 +1,6 @@
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
+using UnityEngine.UI;
 using MenuScreen = Il2CppScheduleOne.UI.MainMenu.MenuScreen;
 using SettingsScreen = Il2CppScheduleOne.UI.MainMenu.SettingsScreen;
 using UObject = UnityEngine.Object;
@@ -66,6 +67,33 @@ public static class UIPathIndex
 
     /// <summary>Under the Settings screen: the display-settings confirmation, a nested screen of its own.</summary>
     public const string SettingsConfirmDisplay = "ConfirmDisplaySettings";
+
+    /// <summary>Under a framed screen: the background, which masks the pattern behind it.</summary>
+    public const string WindowBackground = "Background";
+
+    /// <summary>Under a framed screen: the pattern behind the window (1000×842 in vanilla).</summary>
+    public const string WindowPattern = "Background/Image";
+
+    // ---------- Other pieces ----------
+
+    /// <summary>The save slots' small dark button: the style source for Back buttons.</summary>
+    public const string ImportButton = "Import";
+
+    /// <summary>The loose "Esc Back" prompt in the main menu's corner.</summary>
+    public const string MenuCornerPrompt = "BottomLeftMenuPivot";
+
+    /// <summary>
+    /// Finds the save slots' Import button (main menu only). Null where there are no save slots.
+    /// </summary>
+    /// <remarks>[PERFORMANCE] Walks every Button in the scene; once per window build.</remarks>
+    public static Button? FindImportButton()
+    {
+        foreach (Button button in UObject.FindObjectsOfType<Button>(true))
+        {
+            if (button.name == ImportButton) return button;
+        }
+        return null;
+    }
 
     /// <summary>
     /// Finds vanilla's Settings screen (the main menu's, or the pause menu's in-game). Null if missing.
