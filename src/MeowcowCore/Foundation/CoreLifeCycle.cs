@@ -4,6 +4,7 @@ using Il2CppInterop.Runtime;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Persistence;
 using Il2CppScheduleOne.PlayerScripts;
+using MeowcowCore.Menus;
 using MeowcowCore.ModuleApi;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
@@ -85,6 +86,16 @@ public static class CoreLifecycle
         SuiteModules.LogRegisteredOnce();
 
         Log.Info("Menu");
+
+        // [CHANGED] Core's main menu additions. Started here, built one frame later (see MainMenu).
+        try
+        {
+            MainMenu.OnMenu();
+        }
+        catch (Exception e)
+        {
+            Log.Error("Main menu setup couldn't start", e);
+        }
     }
 
     /// <summary>
