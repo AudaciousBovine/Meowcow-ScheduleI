@@ -1,5 +1,7 @@
 using MelonLoader;
 using MeowcowCore.Foundation;
+using UnityEngine;
+using UnityEngine.SceneManagement;
 
 // [CHANGED] Rebuild: version 0.1.0 (pre-rebuild Core was 0.0.1), so logs and bug reports can tell them apart.
 // The name "MeowcowCore" is Core's module Id (design §5): it names its settings folder and log prefix,
@@ -15,7 +17,7 @@ namespace MeowcowCore;
 /// </summary>
 /// <remarks>
 /// [CHANGED] Rewritten for the rebuild. Unlike the old CoreMod, it has no <c>OnUpdate</c>: nothing runs
-/// per frame. Scene and quit hooks arrive with <c>CoreLifecycle</c>.
+/// per frame. [CHANGED] No <c>OnApplicationQuit</c> either: there's no Quit phase (see CoreLifecycle).
 /// </remarks>
 public sealed class CoreMod : MelonMod
 {
@@ -35,7 +37,33 @@ public sealed class CoreMod : MelonMod
         LoadDebugSetting();
 
         // The version comes from MelonInfo above, so it's never declared twice.
-        Log.Info($"MeowcowCore {Info.Version} loaded");
+        // [CHANGED] MelonLoader already prints "[MeowcowCore]" before every line, so the name isn't repeated.
+        Log.Info($"Version {Info.Version} loaded");
+    }
+
+    /// <summary>Forwarded to <see cref="CoreLifecycle"/>, which only acts on the Menu scene.</summary>
+    /// <remarks>
+    /// [CHANGED] New: CoreLifecycle's Menu phase. Only a MelonMod receives this callback, so CoreMod passes it on.
+    /// [PERFORMANCE] One string comparison per scene change.
+    /// </remarks>
+    public override void OnSceneWasInitialized(int buildIndex, string sceneName)
+    {
+        LogSceneEvent("Initialized", buildIndex, sceneName); // [TEMPORARY] diagnostic, see below
+        CoreLifecycle.OnSceneInitialized(sceneName);
+    }
+
+    /// <summary>
+    /// Logs a scene event with what Unity knows about it: the handle tells whether two events are the
+    /// same scene instance, the frame tells whether they happened together, and the scene count shows
+    /// how many scenes are loaded at that moment.
+    /// </summary>
+    private static void LogSceneEvent(string kind, int buildIndex, string sceneName)
+    {
+        if (!MeowcowLogger.DebugEnabled) return;
+        Scene scene = SceneManager.GetSceneByName(sceneName);
+        Log.Debug($"Scene {kind}: '{sceneName}' index {buildIndex}, handle {scene.handle}, " +
+                  $"frame {Time.frameCount}, loaded scenes {SceneManager.sceneCount}, " +
+                  $"active '{SceneManager.GetActiveScene().name}'");
     }
 
     /// <summary>
