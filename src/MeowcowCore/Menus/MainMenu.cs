@@ -48,6 +48,16 @@ public static class MainMenu
 
         AddSettingsButton(home.transform);
         AddSuiteTag(home.transform);
+
+        // [CHANGED] Vanilla's Settings, reorganised into the suite's layout (before the player can open it).
+        try
+        {
+            SettingsMenu.Setup();
+        }
+        catch (Exception e)
+        {
+            Log.Error("Couldn't reorganise vanilla Settings", e);
+        }
     }
 
     /// <summary>Meowcow Settings, right after vanilla's Settings.</summary>

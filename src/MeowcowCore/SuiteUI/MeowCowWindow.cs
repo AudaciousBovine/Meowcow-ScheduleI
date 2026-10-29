@@ -150,6 +150,17 @@ public sealed class MeowcowWindow
 
     internal WindowTemplates Templates { get; }
 
+    // [CHANGED] Tab colours: a selected left tab takes the content panel's colour so it blends into it;
+    // subtabs are shaded when unselected and clear when selected (see StyleSubtab).
+    /// <summary>The content panel's colour: a selected left tab's colour.</summary>
+    internal Color ContentColor => Content.GetComponent<Image>()?.color ?? Color.clear;
+
+    /// <summary>
+    /// Unselected subtabs: a darkening over the page, so they read as sitting outside it (the reverse of
+    /// vanilla, where the selected tab is the highlighted one).
+    /// </summary>
+    internal static readonly Color UnselectedSubtabShade = new(0f, 0f, 0f, 0.25f);
+
     /// <summary>Fired when the window closes, however it closed (Back, Escape, another screen opening).</summary>
     /// <remarks>[CHANGED] New: Meowcow Settings saves pending changes on close.</remarks>
     public event Action? Closed;
@@ -197,7 +208,7 @@ public sealed class MeowcowWindow
     {
         int index = _tabs.Count;
         (Toggle toggle, UISelectable? selectable) = CreateTabButton(_tabsLayout, _tabStrip, _tabGroup, label, null,
-            on =>
+            sideTab: true, on =>
             {
                 if (on) ShowTab(index);
             });
@@ -231,8 +242,12 @@ public sealed class MeowcowWindow
     /// [CHANGED] Shared by tabs and subtabs (was inside AddTab). The toggle group is set explicitly: the
     /// template still belongs to the main strip's group.
     /// </remarks>
+    /// <param name="sideTab">
+    /// True for a tab down the left side (its highlight turned to round on the left and join the content
+    /// panel), false for a subtab along a page's top (reversed highlight; see <see cref="StyleSubtab"/>).
+    /// </param>
     internal (Toggle toggle, UISelectable? selectable) CreateTabButton(Transform layout, UITab strip, ToggleGroup? group,
-        string label, float? width, Action<bool> onToggled)
+        string label, float? width, bool sideTab, Action<bool> onToggled)
     {
         GameObject button = UObject.Instantiate(Templates.Tab, layout);
         button.name = "Tab " + label;
@@ -267,8 +282,74 @@ public sealed class MeowcowWindow
             selectable.SetIgnoreWhenNavigating(true);
         }
 
+        if (sideTab) StyleSideTab(button);
+        else StyleSubtab(button);
+
         button.SetActive(true);
         return (toggle, selectable);
+    }
+
+    /// <summary>
+    /// A left tab: its selected highlight is vanilla's tab shape (rounded top, flat bottom) turned a quarter
+    /// to the left, so it's rounded on the left and flat where it meets the content panel, and coloured
+    /// like the panel so the selected tab flows into it.
+    /// </summary>
+    /// <remarks>[CHANGED] New (Evelyna's tab styling).</remarks>
+    private void StyleSideTab(GameObject button)
+    {
+        RectTransform? mark = button.transform.Find(UIPathIndex.TabCheckmark)?.TryCast<RectTransform>();
+        if (mark == null) return;
+
+        // Rotated, so its width runs along the tab's height and the other way round.
+        mark.anchorMin = new Vector2(0.5f, 0.5f);
+        mark.anchorMax = new Vector2(0.5f, 0.5f);
+        mark.pivot = new Vector2(0.5f, 0.5f);
+        mark.sizeDelta = new Vector2(TabHeight, TabWidth);
+        mark.anchoredPosition = Vector2.zero;
+        mark.localEulerAngles = new Vector3(0f, 0f, 90f); // top edge → left edge
+
+        Image? image = mark.GetComponent<Image>();
+        if (image != null) image.color = ContentColor;
+    }
+
+    /// <summary>
+    /// A subtab, reversed from vanilla: unselected ones are shaded, so they read as tabs outside the page;
+    /// the selected one is clear, so it shows the panel behind it and reads as part of the page. Vanilla's
+    /// highlight (shown when selected) is switched off, and the shading is set by the tab when the page
+    /// changes (<see cref="SetSubtabSelected"/>).
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] Was: selected highlight recoloured. Vanilla's tab colours come from a colour transition
+    /// whose resting colour is transparent, so the shade never showed; the transition is off now.
+    /// </remarks>
+    private static void StyleSubtab(GameObject button)
+    {
+        Toggle toggle = button.GetComponent<Toggle>();
+        toggle.transition = Selectable.Transition.None;
+
+        Transform? mark = button.transform.Find(UIPathIndex.TabCheckmark);
+        if (mark != null)
+        {
+            toggle.graphic = null;
+            mark.gameObject.SetActive(false);
+        }
+
+        Transform? background = button.transform.Find(UIPathIndex.TabBackground);
+        if (background == null) return;
+        background.gameObject.SetActive(true);
+        Image? shade = background.GetComponent<Image>();
+        if (shade != null)
+        {
+            shade.enabled = true;
+            shade.color = UnselectedSubtabShade;
+        }
+    }
+
+    /// <summary>Shades a subtab button (unselected) or clears it (selected).</summary>
+    internal static void SetSubtabSelected(Toggle button, bool selected)
+    {
+        Image? shade = button.transform.Find(UIPathIndex.TabBackground)?.GetComponent<Image>();
+        if (shade != null) shade.color = selected ? Color.clear : UnselectedSubtabShade;
     }
 
     /// <summary>Keeps a converted handler referenced for the window's lifetime (IL2CPP rule).</summary>
@@ -321,7 +402,8 @@ public sealed class MeowcowWindow
     /// <remarks>[PERFORMANCE] One clone of the Settings screen; done once per scene, on first use.</remarks>
     public static MeowcowWindow? CreateFromSettings(string objectName, string title)
     {
-        SettingsScreen? source = UIPathIndex.FindSettingsScreen();
+        // [CHANGED] The untouched copy if there is one: the real screen may have been reorganised.
+        SettingsScreen? source = _pristine != null ? _pristine : UIPathIndex.FindSettingsScreen();
         if (source == null)
         {
             Log.Warning("Vanilla Settings screen not found; window not built");
@@ -523,9 +605,8 @@ public sealed class MeowcowWindow
     /// <remarks>[CHANGED] New for subtabs.</remarks>
     private static GameObject? TakeStripTemplate(RectTransform tabsPanel, Transform root)
     {
-        GameObject strip = UObject.Instantiate(tabsPanel.gameObject, root); // inside the inactive staging object
-        strip.name = "StripTemplate";
-        strip.SetActive(false);
+        // [CHANGED] Copied through CopyToTemplate, so nothing on the copy wakes up even if the screen is open.
+        GameObject strip = CopyToTemplate(tabsPanel.gameObject, root, "StripTemplate");
 
         UITab? tab = strip.GetComponent<UITab>();
         Transform? layout = strip.transform.Find(UIPathIndex.TabStripLayout);
@@ -575,6 +656,218 @@ public sealed class MeowcowWindow
         return null;
     }
 
+    // ---------- Adopting vanilla's Settings screen ----------
+
+    private static SettingsScreen? _pristine; // Core's untouched copy, per scene (see CapturePristineSettings)
+
+    /// <summary>
+    /// The hidden holder of vanilla's original pages on an adopted screen. Its rows are moved out into the
+    /// window's pages; what's left stays hidden (never destroyed, so vanilla's references stay valid).
+    /// Null for windows built by cloning.
+    /// </summary>
+    public Transform? VanillaPages { get; private set; }
+
+    /// <summary>
+    /// Keeps a hidden, untouched copy of vanilla's Settings screen for this scene, so windows can still be
+    /// cloned from a vanilla screen after the real one is reorganised. Call before <see cref="AdoptSettings"/>.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New for the vanilla Settings rework.
+    /// [PERFORMANCE] One copy of the screen per scene, never shown or woken.
+    /// </remarks>
+    public static void CapturePristineSettings()
+    {
+        if (_pristine != null) return; // this scene already has one
+        SettingsScreen? live = UIPathIndex.FindSettingsScreen();
+        if (live == null) return;
+
+        GameObject copy = CopyToTemplate(live.gameObject, live.transform.parent, UIPathIndex.PristineSettingsName);
+        _pristine = copy.GetComponent<SettingsScreen>();
+    }
+
+    /// <summary>
+    /// Turns vanilla's real Settings screen into a Meowcow window, in place: vanilla's tabs are replaced by
+    /// ours, its pages are hidden in <see cref="VanillaPages"/> for the caller to move rows out of, and the
+    /// frame gets our size, layout, Back button and dragging. <c>SettingsScreen</c> stays, so its rows
+    /// (which call it from below), Apply, the confirmation popup and host-only rows keep working.
+    /// Returns null, with the screen left untouched, if anything expected is missing.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New. Every template is a copy and every check runs before the first change, so a failure
+    /// before the point of no return leaves vanilla's screen exactly as it was.
+    /// [SOURCE] Vanilla <c>SettingsScreen</c> (OnEnable's one-time tab wiring; rows use GetComponentInParent).
+    /// [PERFORMANCE] A few copies and one pass of moves; once per scene.
+    /// </remarks>
+    public static MeowcowWindow? AdoptSettings(SettingsScreen screen)
+    {
+        Transform root = screen.transform;
+        RectTransform? content = root.Find(UIPathIndex.WindowContent)?.TryCast<RectTransform>();
+        RectTransform? tabsPanel = root.Find(UIPathIndex.WindowTabsPanel)?.TryCast<RectTransform>();
+        RectTransform? tabsLayout = root.Find(UIPathIndex.WindowTabsLayout)?.TryCast<RectTransform>();
+        UITab? tabStrip = tabsPanel != null ? tabsPanel.GetComponent<UITab>() : null;
+        TMP_Text? titleText = root.Find(UIPathIndex.WindowTitle)?.GetComponent<TMP_Text>();
+        if (content == null || tabsPanel == null || tabsLayout == null || tabStrip == null)
+        {
+            Log.Warning("Settings screen doesn't look as expected; left vanilla");
+            return null;
+        }
+
+        // Templates: all copies, vanilla's pieces untouched.
+        GameObject? tabSource = FindFirstTab(tabsLayout);
+        GameObject? tabTemplate = tabSource != null ? CopyToTemplate(tabSource, root, "TabTemplate") : null;
+        if (tabTemplate != null) ResetTab(tabTemplate);
+        GameObject? stripTemplate = TakeStripTemplate(tabsPanel, root);
+        GameObject? pageTemplate = CopyPageTemplate(content, root);
+        GameObject? toggleRow = CopyRowTemplate(FindFirst<Il2CppScheduleOne.UIToggle>(content), root, "ToggleRowTemplate");
+        GameObject? sliderRow = CopyRowTemplate(FindFirst<Il2CppScheduleOne.UISlider>(content), root, "SliderRowTemplate");
+        GameObject? choiceRow = CopyRowTemplate(FindChoiceRow(content), root, "ChoiceRowTemplate");
+        if (tabTemplate == null || stripTemplate == null || pageTemplate == null)
+        {
+            Log.Warning("Settings screen has no tab, strip or page to copy; left vanilla");
+            foreach (GameObject? made in new[] { tabTemplate, stripTemplate, pageTemplate, toggleRow, sliderRow, choiceRow })
+                if (made != null) UObject.DestroyImmediate(made);
+            return null;
+        }
+
+        // ---- Point of no return: from here, vanilla's screen changes. ----
+        try
+        {
+            // Vanilla's one-time tab wiring (SettingsScreen.OnEnable) must never run: its tabs are gone.
+            screen._initialized = true;
+            tabStrip.selectables.Clear();
+            for (int i = tabsLayout.childCount - 1; i >= 0; i--) UObject.DestroyImmediate(tabsLayout.GetChild(i).gameObject);
+
+            // Vanilla's pages: out of the gamepad screen, then into a hidden holder (kept, not destroyed).
+            DetachPanels(screen, content);
+            var holder = new GameObject("VanillaPages");
+            holder.AddComponent<RectTransform>();
+            holder.transform.SetParent(content, false);
+            holder.SetActive(false);
+            for (int i = content.childCount - 1; i >= 0; i--)
+            {
+                Transform child = content.GetChild(i);
+                if (child != holder.transform) child.SetParent(holder.transform, false);
+            }
+
+            Transform? version = root.Find(UIPathIndex.SettingsVersion);
+            if (version != null) version.gameObject.SetActive(false);
+
+            LayOut(root, tabsPanel, tabsLayout, content, titleText);
+            tabStrip.cycleDirection = UITab.CycleDirection.Vertical;
+            tabStrip.reverseCycleDirection = true;
+
+            var templates = new WindowTemplates(tabTemplate, stripTemplate, pageTemplate, toggleRow, sliderRow, choiceRow);
+            var window = new MeowcowWindow(screen, content, titleText, tabStrip, tabsLayout, templates)
+            {
+                VanillaPages = holder.transform,
+            };
+            window.AddBackButton(root);
+            window.HookOpenClose();
+            if (titleText != null) window.MakeDraggable(titleText);
+            window.SizeAndPlace(root.TryCast<RectTransform>()!, root.name);
+
+            Log.Debug($"Adopted '{root.name}'");
+            return window;
+        }
+        catch (Exception e)
+        {
+            Log.Error("Reorganising the Settings screen failed partway; it may look broken until the next menu load", e);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A hidden copy of <paramref name="source"/> under <paramref name="parent"/>. Made inside an inactive
+    /// object, so nothing on the copy wakes up even if the source is showing.
+    /// </summary>
+    /// <remarks>[CHANGED] New: shared by every template copy.</remarks>
+    private static GameObject CopyToTemplate(GameObject source, Transform parent, string name)
+    {
+        var staging = new GameObject("MeowcowStaging");
+        staging.SetActive(false);
+        try
+        {
+            GameObject copy = UObject.Instantiate(source, staging.transform);
+            copy.name = name;
+            copy.transform.SetParent(parent, false);
+            copy.SetActive(false);
+            return copy;
+        }
+        finally
+        {
+            UObject.Destroy(staging);
+        }
+    }
+
+    private static GameObject? FindFirstTab(RectTransform tabsLayout)
+    {
+        for (int i = 0; i < tabsLayout.childCount; i++)
+        {
+            Transform tab = tabsLayout.GetChild(i);
+            if (tab.GetComponent<Toggle>() != null) return tab.gameObject;
+        }
+        return null;
+    }
+
+    /// <summary>A tab template back to plain and clickable (a copy carries vanilla's current state).</summary>
+    private static void ResetTab(GameObject tab)
+    {
+        Toggle toggle = tab.GetComponent<Toggle>();
+        toggle.isOn = false;
+        toggle.interactable = true;
+    }
+
+    /// <summary>A stripped copy of a vanilla row, or null.</summary>
+    private static GameObject? CopyRowTemplate(GameObject? row, Transform root, string name)
+    {
+        if (row == null) return null;
+        GameObject copy = CopyToTemplate(row, root, name);
+        UIBuilder.StripScripts(copy);
+        return copy;
+    }
+
+    /// <summary>
+    /// A copy of one of vanilla's pages, emptied and stripped, to clone pages from. Same choice as
+    /// <see cref="TakePageTemplate"/>, but the original page is left alone.
+    /// </summary>
+    private static GameObject? CopyPageTemplate(RectTransform content, Transform root)
+    {
+        UIContentPanel? chosen = null;
+        foreach (UIContentPanel panel in content.GetComponentsInChildren<UIContentPanel>(true))
+        {
+            if (panel.name == UIPathIndex.DropdownTemplate) continue;
+            var scrolls = panel.GetComponentsInChildren<ScrollRect>(true);
+            if (scrolls.Length == 0) continue;
+            chosen ??= panel;
+            if (scrolls[0].verticalScrollbar != null)
+            {
+                chosen = panel;
+                break;
+            }
+        }
+        if (chosen == null) return null;
+
+        GameObject copy = CopyToTemplate(chosen.gameObject, root, "PageTemplate");
+        ScrollRect scroll = copy.GetComponentsInChildren<ScrollRect>(true)[0];
+        RectTransform? rows = scroll.content;
+        if (rows != null)
+        {
+            for (int i = rows.childCount - 1; i >= 0; i--) UObject.DestroyImmediate(rows.GetChild(i).gameObject);
+        }
+        Transform page = copy.transform;
+        for (int i = page.childCount - 1; i >= 0; i--)
+        {
+            Transform child = page.GetChild(i);
+            if (!scroll.transform.IsChildOf(child)) UObject.DestroyImmediate(child.gameObject);
+        }
+
+        UIContentPanel panelCopy = copy.GetComponent<UIContentPanel>();
+        panelCopy.ClearAllSelectables();
+        panelCopy.defaultSelectable = null;
+        UIBuilder.StripScripts(copy);
+        return copy;
+    }
+
     /// <summary>Destroys a direct child by name, detaching its gamepad panels first. Missing is fine.</summary>
     private static void DestroyChild(MenuScreen screen, Transform root, string name)
     {
@@ -601,8 +894,14 @@ public sealed class MeowcowWindow
         SetRect(tabsPanel, new Vector2(0f, 0f), new Vector2(0f, 1f),
             new Vector2(Margin, FooterHeight), new Vector2(Margin + TabWidth, -TitleHeight));
 
+        // [CHANGED] No gap: the tab column ends where the content panel starts, so a selected tab joins it.
         SetRect(content, Vector2.zero, Vector2.one,
-            new Vector2(Margin + TabWidth + Margin, FooterHeight), new Vector2(-Margin, -TitleHeight));
+            new Vector2(Margin + TabWidth, FooterHeight), new Vector2(-Margin, -TitleHeight));
+
+        // [CHANGED] The strip's own background goes: a selected tab must sit on exactly what the content
+        // panel sits on, for their colours to match.
+        Image? stripBackground = tabsPanel.GetComponent<Image>();
+        if (stripBackground != null) stripBackground.color = Color.clear;
 
         // Vertical tabs. A GameObject can't hold two layout groups, so the horizontal one goes first.
         SetRect(tabsLayout, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
@@ -752,6 +1051,8 @@ public sealed class MeowcowWindow
         try
         {
             BorrowPrompt();
+            // [CHANGED] Here as well as in Open(): an adopted screen is opened by vanilla's own buttons.
+            SelectTabStrip();
         }
         catch (Exception e)
         {

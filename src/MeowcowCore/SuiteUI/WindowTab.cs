@@ -102,7 +102,11 @@ public sealed class WindowTab
         for (int i = 0; i < _subtabs.Count; i++)
         {
             _subtabs[i].Page.Root.SetActive(i == index);
-            if (_subtabs[i].Toggle != null) _subtabs[i].Toggle!.interactable = i != index;
+            if (_subtabs[i].Toggle != null)
+            {
+                _subtabs[i].Toggle!.interactable = i != index;
+                MeowcowWindow.SetSubtabSelected(_subtabs[i].Toggle!, i == index); // [CHANGED] reversed shading
+            }
         }
 
         WindowPage page = _subtabs[index].Page;
@@ -135,6 +139,10 @@ public sealed class WindowTab
             new Vector2(PagePadding, -(PagePadding + StripHeight)), new Vector2(-PagePadding, -PagePadding));
 
         _strip = strip.GetComponent<UITab>();
+
+        // [CHANGED] No strip background: the selected subtab must sit on what the page sits on.
+        Image? stripBackground = strip.GetComponent<Image>();
+        if (stripBackground != null) stripBackground.color = Color.clear;
         _strip.cycleInputActionType = UITab.CycleInputActionType.Secondary;
         _strip.cycleDirection = UITab.CycleDirection.Horizontal;
         _strip.reverseCycleDirection = false;
@@ -167,7 +175,7 @@ public sealed class WindowTab
         if (_strip == null || _stripLayout == null) return;
         int index = _subtabs.IndexOf(subtab);
         (Toggle toggle, UISelectable? selectable) = _window.CreateTabButton(_stripLayout, _strip, _stripGroup,
-            subtab.Page.Label, SubtabWidth, on =>
+            subtab.Page.Label, SubtabWidth, sideTab: false, on =>
             {
                 if (on) ShowPage(index);
             });
@@ -176,10 +184,13 @@ public sealed class WindowTab
         if (index == SelectedPage) toggle.isOn = true;
     }
 
-    /// <summary>Pages fill the tab, below the strip when there is one.</summary>
+    /// <summary>
+    /// Pages fill the tab, below the strip when there is one. [CHANGED] Flush under the strip (no gap), so
+    /// the selected subtab joins its page.
+    /// </summary>
     private void LayOutPages()
     {
-        float top = PagePadding + (_strip != null ? StripHeight + PagePadding : 0f);
+        float top = PagePadding + (_strip != null ? StripHeight : 0f);
         foreach (Subtab subtab in _subtabs)
         {
             MeowcowWindow.SetRect(subtab.Page.Root.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,

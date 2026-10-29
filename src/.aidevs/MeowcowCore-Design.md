@@ -4,8 +4,8 @@ Status: **agreed design.** Supersedes `MeowcowCore-DesignPlan.md`.
 Built and tested in-game: **Foundation** (`MeowcowLogger`, `CorePathIndex`, `CoreLifecycle`, `CoreMod`),
 the first part of **ModuleApi** (`IMeowcowModule`, `WakeTrigger`, `SessionInfo`, `SuiteModules`), the first
 part of **SuiteUI** (`UIPathIndex`, `UIBuilder`, `MeowcowWindow`, `WindowTab`, `WindowPage`), the first part
-of **SuiteSettings** (Host and Personal settings, the Meowcow Settings menu) and the **main menu**
-additions. Everything else is design only.
+of **SuiteSettings** (Host and Personal settings, the Meowcow Settings menu), the **main menu**
+additions and slice 1 of the **vanilla Settings rework** (§9). Everything else is design only.
 Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Findings.md`.
 
 ---
@@ -60,6 +60,15 @@ Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Fi
 - **Anything cloned from vanilla must have its state reset, not just its scripts removed.** A clone
   copies the source's *current* state: after vanilla Settings had been opened, its first tab was "on"
   and unclickable, and every tab cloned from it started unclickable.
+- **UI positions: lessons from the Settings rework.**
+  - A row's own coordinates are measured from its **pivot, usually its centre**, not its left edge.
+    Measure from `rect.xMin`.
+  - A page only lays out its rows **when it's shown**, after any setup code runs; rows can still resize
+    or move then. Align within the row, and pin moved parts to the row's left.
+  - Some vanilla layout groups are **disabled** (the keyboard binding rows): only an enabled one positions
+    anything.
+  - Transparent graphics are **click areas**, not visible edges (the toggle's is wider than its circle).
+  - When guessing fails twice, **log the numbers**: a temporary diagnostic found the pivot issue at once.
 - **Build menu UI on scene Initialized, never Loaded.** Exiting a game loads the Menu scene three
   times; on Loaded, two of those copies are about to be destroyed (§4).
 - **`IntroManager` subscribes to `CharacterCreator.OnComplete` and never unsubscribes.** Any later
@@ -340,6 +349,19 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 - **Dragging** by Unity pointer events on the title; kept on screen; position remembered for the run
   (saved with SuiteSettings later). **Double-click recentres**, with our own detection: Unity counts
   releasing a drag as a click when one object handles both, so `clickCount` misfired.
+- **Tab styling:** no gap between the tab column and the content panel. The selected left tab's highlight
+  is vanilla's tab shape (rounded top, flat bottom) turned a quarter left, in the content panel's colour,
+  so it's rounded on the left and joins the panel. Subtabs are **reversed**: unselected ones are shaded
+  (25% black), the selected one is clear and flush on its page. Vanilla's tab colours come from a colour
+  transition with a transparent resting colour, so subtabs drive their shading themselves.
+- **Two-column rows** (`WindowPage.AlignRow`, every row, ours and vanilla's): the label in a column
+  **160 wide, 10 in** from the row's left edge, right-aligned and wrapping; controls start **24** past it.
+  One rule for every kind of row (a label's layout group is switched off). Controls are measured by what
+  reads as their edge: a dropdown's box, a slider's track, a toggle's circle. Notes under a label (Auto
+  Backup's) join the column, top-aligned. Constants at the top of `WindowPage`.
+- Two ways to build: **clone** the Settings screen (Meowcow Settings) or **adopt** an existing one in place
+  (vanilla Settings, §9). Clones are made from a hidden, untouched copy of vanilla's Settings screen taken
+  before it's reorganised.
 - Built on first open, rebuilt after a scene change. `[PERFORMANCE]` nothing per frame.
 
 ### Resilience
@@ -403,15 +425,57 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 
 ## 9. Vanilla Settings rework
 
-- Restyled into `MeowcowWindow`.
-- **Added toggles** (stored in Core's settings): Skip logo, Skip disclaimer.
+Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
+1. **Built:** the new layout with vanilla's own rows (main menu).
+2. In-game (pause menu), with the **Game** tab.
+3. New Core settings and the keyboard/gamepad split.
+4. The keybind rework, with two bindings per action.
+
+### Layout
+| Tab | Subtab | Rows |
+|---|---|---|
+| **General** | Main | Skip Intro*, Skip Disclaimer*, Always Skip Tutorial* (hides the tutorial toggle, defaulting it off), Pause on focus lost, Auto Backup Saves, Seed Mixing default*, Console default* |
+| | Misc | Export Player.log, Export Player-prev.log |
+| **Game** (in a save only) | | that save's Seeded Mixing, Console, View Commands |
+| **Gameplay** | Interface | Interface Scale, Units, Gamepad Pointer Sensitivity |
+| | Camera | Camera Bobbing, FOV, Mouse Camera Sensitivity, Mouse Invert Y, Gamepad Camera Sensitivity, Gamepad Invert Y* |
+| **Graphics** | | Resolution, Active Display, Display Mode, V-Sync, Target Framerate, Quality, Anti-aliasing, SSAO, God Rays (+ Apply) |
+| **Audio** | | all eight volume sliders |
+| **Keybinds** | Mouse & Keyboard | Restore Default Bindings, Sprint Mode, Sneak Mode*, Bindings (two per action*) |
+| | Gamepad | Restore Default Bindings, Sprint Mode*, Sneak Mode*, Bindings |
+
+\* new (slices 3–4). "Camera Sensitivity" keeps "Camera": it isn't the menu cursor's.
+- **Keyboard and gamepad fully decoupled:** Sprint Mode, Sneak Mode and Invert Y each get a keyboard and a
+  gamepad value; Core applies the matching one to vanilla when the input device changes (slice 3).
+  Sneak Mode (hold/toggle for crouching) needs Core to add the toggle behaviour vanilla lacks.
+- Controls is renamed **Keybinds**: camera settings moved to Gameplay.
+
+### How it's built (slice 1)
+- **Vanilla's real screen is reorganised in place** (`MeowcowWindow.AdoptSettings`), not cloned:
+  - rows apply their change with `GetComponentInParent<SettingsScreen>()`, so they must stay under it;
+  - **rows are moved, not copied**: each keeps its own script, which keeps applying vanilla's setting;
+  - `SettingsScreen` stays, so Apply, the display confirmation popup and host-only rows keep working;
+  - vanilla's one-time tab wiring is marked done (`_initialized`); its pages go into a **hidden holder,
+    never destroyed**, so vanilla's references stay valid;
+  - all templates are copies and every check runs first: a failure before the point of no return leaves
+    the screen untouched.
+- **One layout table** in `Menus/SettingsMenu` (vanilla page, row name, tab, subtab, new label; `*` for
+  "the rest of the page"). A row renamed by a game update is a one-line fix; a missing row is skipped.
+- Each moved row registers **exactly the gamepad controls it had** on vanilla's lists.
+- **Keybinds touch-ups:** Restore Default becomes "Restore Default Bindings" on its own row at the top
+  (20 above, 8 below); the "Bindings" header opens the bindings; vanilla's two-button mouse row is split
+  into one row per button; "(Cannot be rebound)" goes on its own line.
+- A **pristine copy** of vanilla's Settings screen is kept per scene; Meowcow Settings is cloned from it.
+- Done once per menu load, before the player can open it. `[PERFORMANCE]` about 40 reparents.
+
+### Still from the original plan
 - **Keybind registry:** one place for every binding.
   - Holds vanilla bindings (mirrored from the live actions once vanilla `Settings` has applied them) and
     every suite binding modules declare.
   - **Each binding has a context** (e.g. On foot, Driving, Menus, Character creator). The same key can
     be used in different contexts; conflicts are flagged only within a context. Modules can add contexts.
   - On a conflict, Core asks instead of silently clearing: "F is used by Interact (On foot). Replace it?"
-  - The Controls tab is built from it, grouped by context, showing keyboard or gamepad by current device.
+  - The Keybinds tab is built from it (slice 4), grouped by context, keyboard and gamepad on their subtabs.
   - **Vanilla stays the source of truth** for its own bindings; the mirror is re-read every launch.
   - `[PERFORMANCE]` built once at launch; conflict checks only when a key changes.
 

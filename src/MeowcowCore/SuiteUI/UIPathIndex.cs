@@ -61,6 +61,12 @@ public static class UIPathIndex
     /// <summary>Under a tab: its label.</summary>
     public const string WindowTabLabel = "Label";
 
+    /// <summary>Under a tab: the highlight shown while selected (rounded top, flat bottom).</summary>
+    public const string TabCheckmark = "Checkmark";
+
+    /// <summary>Under a tab: its background (used for unselected subtabs' shade).</summary>
+    public const string TabBackground = "Background";
+
     /// <summary>Under a framed screen: the LB and RB prompts shown with a gamepad.</summary>
     public const string WindowLeftBumper = "Left bumper prompt";
     public const string WindowRightBumper = "Right bumper prompt";
@@ -82,6 +88,27 @@ public static class UIPathIndex
 
     /// <summary>A choice row's label (on/off and slider rows label themselves through UIOption).</summary>
     public const string RowOptionName = "Option Name - Text (TMP)";
+
+    /// <summary>A binding row's (and gamepad slider row's) label.</summary>
+    public const string RowLabel = "Label";
+
+    /// <summary>The layout group inside gamepad rows, holding their label and control.</summary>
+    public const string RowContainer = "Container";
+
+    /// <summary>Under a slider: its track (what reads as the slider's left edge).</summary>
+    public const string SliderTrack = "Background";
+
+    /// <summary>Under an on/off control (at any depth): its circle.</summary>
+    public const string ToggleCircle = "BG Circle";
+
+    /// <summary>A Keybinds page's section header ("Bindings"), holding the Restore Default button.</summary>
+    public const string BindingHeader = "BindingLabel";
+
+    /// <summary>Under the bindings header: the Restore Default button.</summary>
+    public const string RestoreDefaultButton = "RestoreDefault";
+
+    /// <summary>The keyboard page's mouse-button row (two buttons with icons, side by side).</summary>
+    public const string MouseInfoRow = "MouseInfo";
 
     /// <summary>A choice row's dropdown.</summary>
     public const string RowDropdown = "Dropdown";
@@ -114,7 +141,25 @@ public static class UIPathIndex
     /// Finds vanilla's Settings screen (the main menu's, or the pause menu's in-game). Null if missing.
     /// </summary>
     /// <remarks>[PERFORMANCE] One object search; called once per window build, not per frame.</remarks>
-    public static SettingsScreen? FindSettingsScreen() => UObject.FindObjectOfType<SettingsScreen>(true);
+    /// <remarks>
+    /// [CHANGED] Skips Core's untouched copy of the screen (see <see cref="PristineSettingsName"/>), which is
+    /// also a SettingsScreen.
+    /// </remarks>
+    public static SettingsScreen? FindSettingsScreen()
+    {
+        foreach (SettingsScreen screen in UObject.FindObjectsOfType<SettingsScreen>(true))
+        {
+            if (screen.name != PristineSettingsName) return screen;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Core's hidden, untouched copy of vanilla's Settings screen, taken before Core reorganises the real
+    /// one. New windows (Meowcow Settings) are cloned from it, since the real one no longer looks vanilla.
+    /// </summary>
+    /// <remarks>[CHANGED] New for the vanilla Settings rework.</remarks>
+    public const string PristineSettingsName = "MeowcowPristineSettings";
 
     /// <summary>
     /// Finds the main menu's home screen: the <c>MenuScreen</c> named Home that opens on start and has
