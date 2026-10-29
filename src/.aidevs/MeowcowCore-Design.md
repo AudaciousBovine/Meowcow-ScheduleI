@@ -5,7 +5,8 @@ Built and tested in-game: **Foundation** (`MeowcowLogger`, `CorePathIndex`, `Cor
 the first part of **ModuleApi** (`IMeowcowModule`, `WakeTrigger`, `SessionInfo`, `SuiteModules`), the first
 part of **SuiteUI** (`UIPathIndex`, `UIBuilder`, `MeowcowWindow`, `WindowTab`, `WindowPage`), the first part
 of **SuiteSettings** (Host and Personal settings, the Meowcow Settings menu), the **main menu**
-additions and slice 1 of the **vanilla Settings rework** (§9). Everything else is design only.
+additions, slices 1–2 of the **vanilla Settings rework** (§9), the **template registry** and
+**`InputPrompts`** (§7). Everything else is design only.
 Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Findings.md`.
 
 ---
@@ -60,6 +61,14 @@ Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Fi
 - **Anything cloned from vanilla must have its state reset, not just its scripts removed.** A clone
   copies the source's *current* state: after vanilla Settings had been opened, its first tab was "on"
   and unclickable, and every tab cloned from it started unclickable.
+- **Don't borrow vanilla objects: hide them and show our own clone.** Hiding is one switch to undo;
+  a borrowed object must be put back exactly, and can be destroyed with our window. (Vanilla Settings rows
+  are moved deliberately and permanently, never put back: not borrowing.)
+- **Prefer clones and vanilla's own pieces over Harmony patches.** A Back prompt that needed a patch became
+  two vanilla pieces side by side, each doing what vanilla made it for.
+- **A switched-off canvas has no size.** In a save, the pause menu's canvas is off until the game is
+  paused: anything measured then is zero. Build or measure UI only once its canvas is on (the in-game
+  Settings is built on its first open; windows re-fit on every open).
 - **UI positions: lessons from the Settings rework.**
   - A row's own coordinates are measured from its **pivot, usually its centre**, not its left edge.
     Measure from `rect.xMin`.
@@ -286,7 +295,8 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 | `UIPathIndex` | The only place that knows where vanilla UI lives (paths, and finding Home, the Settings screen, the Import button). | Built (main menu and window paths) |
 | `UIBuilder` | The only way mods create UI: list buttons, text labels, buttons (look kept, scripts stripped), click handlers, layout helpers, debug hierarchy dump. | Built (what the main menu and window need) |
 | `MeowcowWindow` | The shared window: left tabs, subtabs, scroll pages of rows, Back at bottom-left, draggable, gamepad navigation. | Built |
-| `UITemplateRegistry` | Captured vanilla templates: inactive, persistent, listeners stripped. | When a piece is needed outside its own scene |
+| `UITemplateRegistry` | Ready-made pieces, made once per run from vanilla's parts, kept across scenes. | Built (Back button) |
+| `InputPrompts` | Key and button prompts for any action, following the input device. | Built |
 | `UIStyle` | Semantic style tokens (`button.primary`, `tab.selected`, `text.error`, ...). | With Themes |
 | Live elements | Named handles to live UI (`mainmenu.header`, `mainmenu.lobby`, ...) for Themes. | With Themes |
 
@@ -340,12 +350,10 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 - **Scripts are stripped by allow-list** (`UIBuilder.StripScripts`): graphics, Unity controls and layout,
   vanilla's generic controls, gamepad panels and sounds stay; anything else goes, including scripts
   we've never seen and EventTriggers.
-- **Back:** a clone of the save slots' `Import` button (140×40), scripts stripped, one shared static
-  handler closing `MenuScreen.Current`. No style source (in-game): no button; Escape still works.
-- **Back borrows vanilla's corner prompt** (`BottomLeftMenuPivot`) while the window is open, in place of
-  its text, so it always shows the right key or button (Esc, B, Circle...) and follows rebinding with
-  no device logic of ours. Returned exactly as it was on close, and by `CoreLifecycle` before any scene
-  change as a guard. Not showing: the button keeps its text.
+- **Back** (140×40) comes from the template registry, the same in every scene; one shared static handler
+  closes `MenuScreen.Current`. Without the piece: no button; Escape still works. Vanilla's corner prompt
+  (the main menu's `BottomLeftMenuPivot`, or the pause menu's `InputPrompt (Back)`) is **hidden** while
+  the window is open, and shown again on close if it was showing.
 - **Dragging** by Unity pointer events on the title; kept on screen; position remembered for the run
   (saved with SuiteSettings later). **Double-click recentres**, with our own detection: Unity counts
   releasing a drag as a click when one object handles both, so `clickCount` misfired.
@@ -359,10 +367,38 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
   One rule for every kind of row (a label's layout group is switched off). Controls are measured by what
   reads as their edge: a dropdown's box, a slider's track, a toggle's circle. Notes under a label (Auto
   Backup's) join the column, top-aligned. Constants at the top of `WindowPage`.
+- **Label icons** (Seeded Mixing's info icon: a small graphic, not a control or text, at most 40×40) sit
+  4 past the label's end, in the gap before the controls.
+- **Re-fitted on every open:** the size check (default 1100×700, or less on a small screen) runs when built
+  and again on open, and ignores a canvas size below 400×300 (an inactive canvas reports zero).
 - Two ways to build: **clone** the Settings screen (Meowcow Settings) or **adopt** an existing one in place
   (vanilla Settings, §9). Clones are made from a hidden, untouched copy of vanilla's Settings screen taken
   before it's reorganised.
 - Built on first open, rebuilt after a scene change. `[PERFORMANCE]` nothing per frame.
+
+### `UITemplateRegistry` — built
+- The suite's library of ready-made pieces, so every scene builds from the same ones. Pieces are made
+  once per run at the main menu (`CaptureMissing` retries any missing piece at the next menu), kept in
+  one **hidden, inactive holder that survives scene changes**, and cloned by windows (`Create`).
+- **Simple pieces are built from vanilla's look; complex controls stay templates.** A button is mostly
+  look and is rebuilt; vanilla's dropdowns, sliders and toggles are mostly behaviour, so they're cloned.
+- **Back button:** the Import button's look (`UIBuilder.StripToLook`), a gamepad prompt and key-cap slot
+  (`InputPrompts`) pointed at `GameInput.PrimaryExitAction` (what Escape and B trigger), and "Back" at
+  vanilla's prompt-text size (from the corner prompt's `PromptLabel`), laid out in a row.
+
+### `InputPrompts` — built
+- A prompt for **any action** is two vanilla pieces side by side:
+  - vanilla's `EmbeddedInputPromptUI`, **gamepad only** as vanilla uses it (B, Circle...), redrawn by
+    vanilla on device changes; an empty binding id means "the current device's binding";
+  - a **key-cap slot** holding vanilla's own rounded key cap (`InputPromptsManager.GetPromptImage`, the
+    caps behind vanilla's corner prompts), shown only on keyboard. Vanilla's prompt data has no keyboard
+    pictures, which is why its embedded prompts are gamepad-only.
+- Each slot shows the key of the embedded prompt just before it, so it needs no settings of its own.
+- `AddKeyCapSlot` when making a piece; windows call `Shown`/`Hidden`, and every prompt inside follows the
+  device. The key is read from the live binding on open (cap rebuilt only if it changed), so rebinding is
+  followed. **One** listener on `GameInput.OnInputDeviceChanged` for the whole run.
+- `[PERFORMANCE]` a cap made only when a window opens with a changed key; the listener runs only on device
+  changes.
 
 ### Resilience
 - **Automatic fallback:** if Core can't build a menu, it stays vanilla and a warning is logged.
@@ -427,7 +463,7 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 
 Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
 1. **Built:** the new layout with vanilla's own rows (main menu).
-2. In-game (pause menu), with the **Game** tab.
+2. **Built:** in-game (pause menu), with **General › Current Game**.
 3. New Core settings and the keyboard/gamepad split.
 4. The keybind rework, with two bindings per action.
 
@@ -435,8 +471,8 @@ Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
 | Tab | Subtab | Rows |
 |---|---|---|
 | **General** | Main | Skip Intro*, Skip Disclaimer*, Always Skip Tutorial* (hides the tutorial toggle, defaulting it off), Pause on focus lost, Auto Backup Saves, Seed Mixing default*, Console default* |
+| | Current Game (in a save only) | that save's Seeded Mixing, Console, View Commands |
 | | Misc | Export Player.log, Export Player-prev.log |
-| **Game** (in a save only) | | that save's Seeded Mixing, Console, View Commands |
 | **Gameplay** | Interface | Interface Scale, Units, Gamepad Pointer Sensitivity |
 | | Camera | Camera Bobbing, FOV, Mouse Camera Sensitivity, Mouse Invert Y, Gamepad Camera Sensitivity, Gamepad Invert Y* |
 | **Graphics** | | Resolution, Active Display, Display Mode, V-Sync, Target Framerate, Quality, Anti-aliasing, SSAO, God Rays (+ Apply) |
@@ -467,6 +503,19 @@ Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
   into one row per button; "(Cannot be rebound)" goes on its own line.
 - A **pristine copy** of vanilla's Settings screen is kept per scene; Meowcow Settings is cloned from it.
 - Done once per menu load, before the player can open it. `[PERFORMANCE]` about 40 reparents.
+
+### In a save (slice 2)
+- `SettingsScreen_Ingame` (under the pause menu) has **the same pages and row names**, so the same layout
+  table is used, plus the Game page.
+- **Built on its first open**, not at session start: the pause menu's canvas is off until the game is
+  paused, and rows measured then are zero-sized. Core waits for the screen's first open
+  (`OnBecomeTopSibling`), reorganises it, then runs the window's open handling itself (`NotifyOpened`),
+  since the window's own handler is only added during that open.
+- **Current Game adopts vanilla's whole Game page** (`WindowTab.AddExistingPage`; a `#page` entry marked
+  in-save only): its `GameSettingsWindow` script lives on the page, wires the toggles and shows the
+  host-only Blocker in `Awake`/`Start`, and a hidden page's script never runs. Moving the page whole keeps
+  it running; it's re-registered as a gamepad panel and its rows are aligned.
+- `[PERFORMANCE]` the reorganising (about 40 reparents) happens on the first Settings open of a session.
 
 ### Still from the original plan
 - **Keybind registry:** one place for every binding.

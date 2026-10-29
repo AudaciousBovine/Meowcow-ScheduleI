@@ -155,9 +155,8 @@ public static class CoreLifecycle
             IsInSession = true;
             Log.Info("Session start");
 
-            // [TEMPORARY] Research for the in-game Settings (rework slice 2b): dumps the pause menu's Settings
-            // screen. Debug only. Remove once slice 2c is written.
-            if (MeowcowLogger.DebugEnabled) MelonLoader.MelonCoroutines.Start(DumpInGameSettings());
+            // [CHANGED] The in-game Settings, reorganised like the main menu's (plus Current Game).
+            MeowcowCore.Menus.SettingsMenu.SetupInSave();
 
             // [CHANGED] Modules: wake Session modules, then give every awake module the session.
             SuiteModules.SessionStarted(new SessionInfo(isHost: InstanceFinder.IsServer));
@@ -180,21 +179,6 @@ public static class CoreLifecycle
         {
             Log.Error("Session end failed", e);
         }
-    }
-
-    /// <summary>[TEMPORARY] Waits a frame for the game's UI, then dumps the in-game Settings screen and its parent.</summary>
-    private static System.Collections.IEnumerator DumpInGameSettings()
-    {
-        yield return null;
-        var screen = MeowcowCore.SuiteUI.UIPathIndex.FindSettingsScreen();
-        if (screen == null)
-        {
-            Log.Debug("[Research] No Settings screen in-game");
-            yield break;
-        }
-        if (screen.transform.parent != null)
-            MeowcowCore.SuiteUI.UIBuilder.DumpHierarchy(screen.transform.parent, Log, maxDepth: 1);
-        MeowcowCore.SuiteUI.UIBuilder.DumpHierarchy(screen.transform, Log, maxDepth: 9);
     }
 
     /// <summary>

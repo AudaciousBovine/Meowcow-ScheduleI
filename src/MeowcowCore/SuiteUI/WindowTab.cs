@@ -65,9 +65,21 @@ public sealed class WindowTab
     /// is selected; the subtab strip appears when the second is added.
     /// </summary>
     /// <remarks>[PERFORMANCE] One page clone; the strip is built once, when it's first needed.</remarks>
-    public WindowPage AddPage(string label)
+    public WindowPage AddPage(string label) => AddPageInternal(WindowPage.Create(_window, View.transform, label));
+
+    /// <summary>
+    /// Adds an existing page (one of vanilla's, with its own scripts) as a subtab, instead of a new one: the
+    /// page moves here whole, so its scripts run whenever it's shown, and its rows are aligned like any other.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New for General › Current Game: vanilla's Game page is driven by a script on the page itself,
+    /// which only runs while the page is active, so the page moves rather than its rows.
+    /// </remarks>
+    public WindowPage AddExistingPage(string label, GameObject pageRoot) =>
+        AddPageInternal(WindowPage.Adopt(_window, View.transform, label, pageRoot));
+
+    private WindowPage AddPageInternal(WindowPage page)
     {
-        WindowPage page = WindowPage.Create(_window, View.transform, label);
         var subtab = new Subtab(page);
         _subtabs.Add(subtab);
 

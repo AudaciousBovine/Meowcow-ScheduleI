@@ -27,6 +27,9 @@ internal static class SettingsMenu
     /// <summary>All of a vanilla page's rows not placed elsewhere, in their order.</summary>
     private const string RestOfPage = "*";
 
+    /// <summary>The vanilla page itself, moved whole as a subtab (for pages run by a script on the page).</summary>
+    private const string WholePage = "#page";
+
     /// <summary>
     /// Where each vanilla row goes: vanilla page, row name, our tab, our subtab (null for a tab with one
     /// page), and an optional new label. Tabs and subtabs appear in the order they first appear here.
@@ -41,6 +44,9 @@ internal static class SettingsMenu
         // General
         new("Display", "PauseOnLoseFocus", "General", "Main"),
         new("Other", "AutoBackupSaves", "General", "Main"),
+        // [CHANGED] The current save's settings (in a save only): vanilla's Game page, moved whole, since a
+        // script on the page runs its rows and shows its host-only Blocker.
+        new("Game", WholePage, "General", "Current Game", InSaveOnly: true),
         new("Other", "Export Player Log", "General", "Misc"),
         new("Other", "Export Player Log (1)", "General", "Misc"),
 
@@ -82,24 +88,27 @@ internal static class SettingsMenu
     /// <summary>Vanilla rows that aren't moved anywhere: the "Settings" headers above the moved settings.</summary>
     private static readonly HashSet<string> LeftBehind = new(StringComparer.Ordinal) { "SettingsLabel" };
 
-    private sealed record Placement(string Page, string Row, string Tab, string? Subtab, string? Label = null);
+    /// <param name="InSaveOnly">The vanilla page only exists in a save; its absence elsewhere is expected.</param>
+    private sealed record Placement(string Page, string Row, string Tab, string? Subtab, string? Label = null,
+        bool InSaveOnly = false);
 
     /// <summary>
     /// Reorganises this scene's Settings screen. Called once per menu load, before the player can open it.
     /// Keeps an untouched copy first, which Meowcow Settings is cloned from.
     /// </summary>
-    internal static void Setup()
+    /// <returns>The window, or null if the screen was left vanilla.</returns>
+    internal static MeowcowWindow? Setup()
     {
         var screen = UIPathIndex.FindSettingsScreen();
         if (screen == null)
         {
             Log.Warning("Settings screen not found; left vanilla");
-            return;
+            return null;
         }
 
         MeowcowWindow.CapturePristineSettings(); // before anything changes
         MeowcowWindow? window = MeowcowWindow.AdoptSettings(screen);
-        if (window?.VanillaPages == null) return;
+        if (window?.VanillaPages == null) return null;
 
         List<UISelectable> gamepadControls = CollectGamepadControls(window.VanillaPages);
         var tabs = new Dictionary<string, WindowTab>(StringComparer.Ordinal);
@@ -115,7 +124,13 @@ internal static class SettingsMenu
                 Transform? pageRoot = window.VanillaPages.Find(placement.Page);
                 if (pageRoot == null)
                 {
-                    Log.Warning($"Vanilla page '{placement.Page}' not found; its rows aren't shown");
+                    if (!placement.InSaveOnly) Log.Warning($"Vanilla page '{placement.Page}' not found; its rows aren't shown");
+                    continue;
+                }
+
+                if (placement.Row == WholePage)
+                {
+                    AdoptWholePage(window, tabs, pages, placement, pageRoot);
                     continue;
                 }
 
@@ -136,6 +151,7 @@ internal static class SettingsMenu
 
         TouchUpKeybinds(movedRows);
         Log.Debug($"Settings reorganised: {count} rows moved");
+        return window;
     }
 
     // ---------- Keybinds touch-ups ----------
@@ -262,12 +278,7 @@ internal static class SettingsMenu
     private static WindowPage PageFor(MeowcowWindow window, Dictionary<string, WindowTab> tabs,
         Dictionary<string, WindowPage> pages, Placement placement)
     {
-        if (!tabs.TryGetValue(placement.Tab, out WindowTab? tab))
-        {
-            tab = window.AddTab(placement.Tab);
-            tabs.Add(placement.Tab, tab);
-        }
-
+        WindowTab tab = TabFor(window, tabs, placement);
         string subtab = placement.Subtab ?? placement.Tab;
         string key = placement.Tab + "/" + subtab;
         if (!pages.TryGetValue(key, out WindowPage? page))
@@ -276,6 +287,88 @@ internal static class SettingsMenu
             pages.Add(key, page);
         }
         return page;
+    }
+
+    private static WindowTab TabFor(MeowcowWindow window, Dictionary<string, WindowTab> tabs, Placement placement)
+    {
+        if (!tabs.TryGetValue(placement.Tab, out WindowTab? tab))
+        {
+            tab = window.AddTab(placement.Tab);
+            tabs.Add(placement.Tab, tab);
+        }
+        return tab;
+    }
+
+    /// <summary>A whole vanilla page becomes a subtab: its panel (with its scripts) moves into the tab.</summary>
+    private static void AdoptWholePage(MeowcowWindow window, Dictionary<string, WindowTab> tabs,
+        Dictionary<string, WindowPage> pages, Placement placement, Transform pageRoot)
+    {
+        var panels = pageRoot.GetComponentsInChildren<UIContentPanel>(true);
+        if (panels.Length == 0)
+        {
+            Log.Warning($"Vanilla page '{placement.Page}' has no panel to move");
+            return;
+        }
+
+        WindowTab tab = TabFor(window, tabs, placement);
+        string subtab = placement.Subtab ?? placement.Tab;
+        pages[placement.Tab + "/" + subtab] = tab.AddExistingPage(subtab, panels[0].gameObject);
+    }
+
+    private static Il2CppSystem.Action? _firstOpen; // kept referenced (IL2CPP rule)
+    private static Il2CppScheduleOne.UI.MainMenu.SettingsScreen? _waitingScreen;
+
+    /// <summary>
+    /// In a save, the Settings screen is reorganised the first time it opens, not when the session starts.
+    /// Called by CoreLifecycle at session start.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] Was: one frame after the session started. The pause menu's canvas is switched off until the
+    /// game is paused, and a switched-off canvas has no size, so every row was measured as zero-sized and
+    /// aligned wrongly (labels gone, rows on top of each other). At first open the canvas is on.
+    /// [PERFORMANCE] The reorganising (about 40 reparents) happens on that first open, once per session.
+    /// </remarks>
+    internal static void SetupInSave() => MelonLoader.MelonCoroutines.Start(WaitForFirstOpen());
+
+    private static System.Collections.IEnumerator WaitForFirstOpen()
+    {
+        yield return null; // the pause menu sets itself up first
+        try
+        {
+            var screen = UIPathIndex.FindSettingsScreen();
+            if (screen == null)
+            {
+                Log.Warning("In-game Settings screen not found; left vanilla");
+                yield break;
+            }
+            _waitingScreen = screen;
+            _firstOpen ??= Il2CppInterop.Runtime.DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(new Action(OnFirstOpen));
+            screen.State.add_OnBecomeTopSibling(_firstOpen);
+        }
+        catch (Exception e)
+        {
+            Log.Error("Couldn't prepare the in-game Settings", e);
+        }
+    }
+
+    /// <summary>Called from native code (the screen opening): exceptions must never escape.</summary>
+    private static void OnFirstOpen()
+    {
+        try
+        {
+            var screen = _waitingScreen;
+            _waitingScreen = null;
+            if (screen == null) return;
+            screen.State.remove_OnBecomeTopSibling(_firstOpen);
+
+            // The window's own open handling was added during this open, so it runs from the next one: this
+            // first time, it's run here.
+            Setup()?.NotifyOpened();
+        }
+        catch (Exception e)
+        {
+            Log.Error("Couldn't reorganise the in-game Settings", e);
+        }
     }
 
     /// <summary>The rows a placement moves: one named row, or every remaining row of the page.</summary>

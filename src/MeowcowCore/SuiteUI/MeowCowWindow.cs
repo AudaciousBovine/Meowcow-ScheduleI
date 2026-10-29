@@ -56,6 +56,9 @@ public sealed class MeowcowWindow
     // [CHANGED] The larger frame from the pre-rebuild window, capped to the screen.
     private static readonly Vector2 DefaultSize = new(1100f, 700f);
 
+    // [CHANGED] Below this, a canvas size isn't real (an inactive canvas reports zero); the default is used.
+    private static readonly Vector2 MinimumSize = new(400f, 300f);
+
     // Where each window was last dragged, by object name. For this run only: saving it between runs
     // needs SuiteSettings.
     private static readonly Dictionary<string, Vector2> RememberedPositions = new();
@@ -93,6 +96,7 @@ public sealed class MeowcowWindow
     private readonly List<Il2CppSystem.Object> _handlers = new();
 
     private RectTransform? _root;
+    private string? _positionKey; // [CHANGED] which remembered position is this window's
     private float _canvasScale = 1f;
     // [CHANGED] Vanilla's corner "Back" prompt is hidden while the window is open (our Back button has its
     // own prompt, from the template registry), and shown again on close if it was showing.
@@ -918,31 +922,52 @@ public sealed class MeowcowWindow
     private void SizeAndPlace(RectTransform root, string objectName)
     {
         _root = root;
-        Canvas? canvas = UIBuilder.RootCanvas(root);
-        if (canvas != null && canvas.scaleFactor > 0f) _canvasScale = canvas.scaleFactor;
-
-        Vector2 available = canvas != null
-            ? canvas.GetComponent<RectTransform>().rect.size - new Vector2(Margin * 2f, Margin * 2f)
-            : DefaultSize;
-        Vector2 size = Vector2.Min(DefaultSize, available);
-
+        _positionKey = objectName;
         root.anchorMin = new Vector2(0.5f, 0.5f);
         root.anchorMax = new Vector2(0.5f, 0.5f);
         root.pivot = new Vector2(0.5f, 0.5f);
-        root.sizeDelta = size;
-        root.anchoredPosition = Clamp(RememberedPositions.TryGetValue(objectName, out Vector2 saved) ? saved : Vector2.zero);
+        FitToScreen();
 
-        // The pattern keeps its shape and covers the bigger window. [SOURCE] findings doc §3.
+        // The pattern keeps its shape and covers the largest window. [SOURCE] findings doc §3.
         RectTransform? pattern = root.Find(UIPathIndex.WindowPattern)?.TryCast<RectTransform>();
         if (pattern != null)
         {
             Vector2 original = pattern.rect.size;
             if (original.x > 0f && original.y > 0f)
             {
-                float scale = Mathf.Max(size.x / original.x, size.y / original.y, 1f) * 1.05f;
+                float scale = Mathf.Max(DefaultSize.x / original.x, DefaultSize.y / original.y, 1f) * 1.05f;
                 pattern.sizeDelta = original * scale;
             }
         }
+    }
+
+    /// <summary>
+    /// The window's size (the default, or less on a small screen) and its remembered position, kept on
+    /// screen. Done when built and again each time it opens, when its canvas is sure to be laid out.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] Split out and run on every open. In a save, the pause menu's canvas is switched off while
+    /// Core builds the window, and an inactive canvas reports a size of zero: the window was sized negative
+    /// (title stacked one letter per line, no background or rows). A canvas size too small to be real is
+    /// now ignored, and the size is checked again on open.
+    /// </remarks>
+    private void FitToScreen()
+    {
+        if (_root == null) return;
+        Canvas? canvas = UIBuilder.RootCanvas(_root);
+        if (canvas != null && canvas.scaleFactor > 0f) _canvasScale = canvas.scaleFactor;
+
+        Vector2 size = DefaultSize;
+        if (canvas != null)
+        {
+            Vector2 available = canvas.GetComponent<RectTransform>().rect.size - new Vector2(Margin * 2f, Margin * 2f);
+            if (available.x >= MinimumSize.x && available.y >= MinimumSize.y) size = Vector2.Min(DefaultSize, available);
+        }
+
+        _root.sizeDelta = size;
+        _root.anchoredPosition = Clamp(_positionKey != null && RememberedPositions.TryGetValue(_positionKey, out Vector2 saved)
+            ? saved
+            : Vector2.zero);
     }
 
     /// <summary>Keeps the whole window on screen: a centre position limited by half the free space.</summary>
@@ -1017,11 +1042,19 @@ public sealed class MeowcowWindow
         Screen.State.add_OnNoLongerTopSibling(closed);
     }
 
+    /// <summary>
+    /// Runs the window's open handling now, for a window adopted while its screen was already opening (its
+    /// own handler, added during that open, only runs from the next one).
+    /// </summary>
+    /// <remarks>[CHANGED] New, for the in-game Settings, built on its first open.</remarks>
+    public void NotifyOpened() => OnOpened();
+
     /// <summary>Called from native code: exceptions must never escape.</summary>
     private void OnOpened()
     {
         try
         {
+            FitToScreen(); // [CHANGED] the canvas is laid out by now (see FitToScreen)
             HideCornerPrompt();
             InputPrompts.Shown(_root ?? Screen.transform); // [CHANGED] key prompts (e.g. Back's) follow the device
             // [CHANGED] Here as well as in Open(): an adopted screen is opened by vanilla's own buttons.
@@ -1062,7 +1095,8 @@ public sealed class MeowcowWindow
     /// </remarks>
     private void HideCornerPrompt()
     {
-        _cornerPrompt = GameObject.Find(UIPathIndex.MenuCornerPrompt); // only finds it if it's showing
+        // Only found if showing. [CHANGED] The main menu's, or the pause menu's in a save.
+        _cornerPrompt = GameObject.Find(UIPathIndex.MenuCornerPrompt) ?? GameObject.Find(UIPathIndex.InGameCornerPrompt);
         _cornerPromptWasActive = _cornerPrompt != null && _cornerPrompt.activeSelf;
         if (_cornerPromptWasActive) _cornerPrompt!.SetActive(false);
     }

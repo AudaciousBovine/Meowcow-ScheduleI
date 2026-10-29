@@ -124,6 +124,9 @@ public static class UIPathIndex
     /// <summary>The loose "Esc Back" prompt in the main menu's corner.</summary>
     public const string MenuCornerPrompt = "BottomLeftMenuPivot";
 
+    /// <summary>The pause menu's own "Back" prompt, beside its screens (in a save).</summary>
+    public const string InGameCornerPrompt = "InputPrompt (Back)";
+
     /// <summary>Under the corner prompt: the text beside the key ("Back"), the size prompt text is shown at.</summary>
     public const string PromptLabel = "PromptLabel";
 

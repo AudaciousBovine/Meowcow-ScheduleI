@@ -34,6 +34,8 @@ public sealed class WindowPage
     private const float LabelIndent = 10f;        // row's left edge → label column ([CHANGED] was 20)
     private const float LabelColumnWidth = 160f;  // [CHANGED] was 200, then 260; longer labels wrap
     private const float ColumnGap = 24f;          // label column → controls
+    private const float IconSpacing = 4f;         // [CHANGED] label's end → a small icon beside it (in the gap)
+    private const float MaxIconSize = 40f;        // [CHANGED] larger graphics are backgrounds, not icons
     private const float TextWidth = 600f;
 
     private static readonly MeowcowLogger Log = CoreMod.Log.Tagged("Window");
@@ -76,6 +78,27 @@ public sealed class WindowPage
         // A gamepad panel of the window's screen: the screen picks the visible page when it opens.
         window.Screen.uiScreen?.AddPanel(panel);
         return new WindowPage(window, label, root, panel, scroll, rows);
+    }
+
+    /// <summary>
+    /// An existing page moved under <paramref name="parent"/> as is: its gamepad panel is registered with the
+    /// window again, and its rows are aligned. Hidden until its subtab shows it.
+    /// </summary>
+    /// <remarks>[CHANGED] New, for vanilla pages that must keep their own scripts (Current Game).</remarks>
+    internal static WindowPage Adopt(MeowcowWindow window, Transform parent, string label, GameObject root)
+    {
+        root.transform.SetParent(parent, false);
+        root.SetActive(false);
+
+        UIContentPanel panel = root.GetComponent<UIContentPanel>();
+        var scrolls = root.GetComponentsInChildren<ScrollRect>(true);
+        ScrollRect? scroll = scrolls.Length > 0 ? scrolls[0] : null;
+        RectTransform rows = scroll != null && scroll.content != null ? scroll.content : root.GetComponent<RectTransform>();
+
+        window.Screen.uiScreen?.AddPanel(panel); // detached with vanilla's other pages; back in
+        var page = new WindowPage(window, label, root, panel, scroll, rows);
+        for (int i = 0; i < rows.childCount; i++) page.AlignRow(rows.GetChild(i));
+        return page;
     }
 
     // ---------- Rows ----------
@@ -259,18 +282,23 @@ public sealed class WindowPage
 
         // Controls hold a control (slider, toggle button, dropdown...); text without one is a note under the
         // label; anything else (backgrounds, navigation markers) stays put.
+        // [CHANGED] Small icons beside the label (Seeded Mixing's info icon, which shows a tooltip on hover)
+        // follow the label: they sit just past its end, in the gap before the controls.
         var controls = new List<RectTransform>();
         var notes = new List<RectTransform>();
+        var icons = new List<RectTransform>();
         for (int i = 0; i < holder.childCount; i++)
         {
             RectTransform? child = holder.GetChild(i).TryCast<RectTransform>();
             if (child == null || child == label.rectTransform) continue;
 
             if (child.GetComponentsInChildren<Selectable>(true).Length > 0) controls.Add(child);
-            else if (child.gameObject.activeSelf && child.GetComponent<TMP_Text>() != null) notes.Add(child);
+            else if (!child.gameObject.activeSelf) continue;
+            else if (child.GetComponent<TMP_Text>() != null) notes.Add(child);
+            else if (IsLabelIcon(child)) icons.Add(child);
         }
 
-        Align(row, label, controls, notes);
+        Align(row, label, controls, notes, icons);
     }
 
     /// <summary>
@@ -280,7 +308,7 @@ public sealed class WindowPage
     /// </summary>
     /// <remarks>[CHANGED] New for the Keybinds touch-ups.</remarks>
     public void AlignCustomRow(Transform row, TMP_Text label, IReadOnlyList<RectTransform> controls) =>
-        Align(row, label, controls, Array.Empty<RectTransform>());
+        Align(row, label, controls, Array.Empty<RectTransform>(), Array.Empty<RectTransform>());
 
     /// <summary>
     /// Moves a rect so its left edge is at the label column's left edge (e.g. a button that replaces a
@@ -296,7 +324,7 @@ public sealed class WindowPage
 
     /// <summary>The shared rule: label (and notes) into the column, controls to the control column.</summary>
     private static void Align(Transform row, TMP_Text label, IReadOnlyList<RectTransform> controls,
-        IReadOnlyList<RectTransform> notes)
+        IReadOnlyList<RectTransform> notes, IReadOnlyList<RectTransform> icons)
     {
         // In the row's own space, from its left edge (its pivot is its centre, and the page only positions
         // the row afterwards, so page-space positions now wouldn't hold).
@@ -305,6 +333,14 @@ public sealed class WindowPage
 
         foreach (RectTransform note in notes) PlaceInLabelColumn(row, note, note.GetComponent<TMP_Text>(), columnLeft, isNote: true);
         PlaceInLabelColumn(row, label.rectTransform, label, columnLeft);
+
+        // Icons just past the label's end (labels end at the column's edge), before the controls.
+        float iconLeft = columnLeft + LabelColumnWidth + IconSpacing;
+        foreach (RectTransform icon in icons)
+        {
+            AnchorLeftKeepPlace(icon);
+            icon.anchoredPosition += new Vector2(iconLeft - RowLeftEdge(row, icon), 0f);
+        }
 
         float firstControl = float.MaxValue;
         foreach (RectTransform control in controls)
@@ -360,6 +396,17 @@ public sealed class WindowPage
             if (deeper != null) return deeper;
         }
         return null;
+    }
+
+    /// <summary>
+    /// A small, shown graphic beside the label (an info icon): not a control, not text, and no bigger than
+    /// <see cref="MaxIconSize"/> either way, which rules out backgrounds that span the row.
+    /// </summary>
+    private static bool IsLabelIcon(RectTransform child)
+    {
+        if (child.GetComponentsInChildren<Graphic>(true).Length == 0) return false; // the page may still be hidden
+        Vector2 size = child.rect.size;
+        return size.x > 0f && size.y > 0f && size.x <= MaxIconSize && size.y <= MaxIconSize;
     }
 
     /// <summary>
