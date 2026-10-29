@@ -2,6 +2,7 @@ using System;
 using MelonLoader;
 using MeowcowCore.Foundation;
 using MeowcowCore.ModuleApi;
+using MeowcowCore.SuiteSettings;
 
 [assembly: MelonInfo(typeof(MeowcowTestModule.TestModuleMod), "MeowcowTestModule", "0.0.1", "Evelyna")]
 [assembly: MelonGame("TVGS", "Schedule I")]
@@ -38,7 +39,32 @@ public sealed class TestModuleMod : MelonMod, IMeowcowModule
             "OnSessionStart throws. Tests isolation, and that OnSessionEnd still arrives.");
 
         SuiteModules.Register(this);
+        DeclareTestSettings();
         _log.Info($"Initialised (WakeFailures {_wakeFailures.Value}, ThrowOnSessionStart {_throwOnSessionStart.Value})");
+    }
+
+    /// <summary>
+    /// One setting of each type across two subtabs, to test Meowcow Settings: rows, subtabs, saving, and the
+    /// Changed events (logged).
+    /// </summary>
+    /// <remarks>[CHANGED] New for SuiteSettings slice 1.</remarks>
+    private void DeclareTestSettings()
+    {
+        ModuleSettings settings = MeowcowSettings.For(this);
+
+        SettingsSubtab general = settings.Subtab("General");
+        ToggleSetting toggle = general.Toggle("testToggle", "Test toggle", true, "An on/off setting.");
+        NumberSetting number = general.Number("testNumber", "Test number", 50f, 0f, 100f, step: 5f,
+            wholeNumbers: true, description: "A whole number from 0 to 100.");
+
+        SettingsSubtab more = settings.Subtab("More");
+        ChoiceSetting choice = more.Choice("testChoice", "Test choice", "Medium", new[] { "Low", "Medium", "High" },
+            "One of three choices.");
+
+        toggle.Changed += v => _log.Info($"Test toggle → {v}");
+        number.Changed += v => _log.Info($"Test number → {v}");
+        choice.Changed += v => _log.Info($"Test choice → {v}");
+        _log.Info($"Settings loaded: toggle {toggle.Value}, number {number.Value}, choice {choice.Value}");
     }
 
     public void OnWake()

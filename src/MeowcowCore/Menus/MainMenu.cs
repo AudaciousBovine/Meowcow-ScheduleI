@@ -14,8 +14,8 @@ namespace MeowcowCore.Menus;
 /// "Meowcow Suite" tag beside the version text. Rebuilt on every menu load, since vanilla rebuilds the menu.
 /// </summary>
 /// <remarks>
-/// [CHANGED] New for the rebuild (was <c>Menu/MainMenu</c> + <c>OptionsButton</c>). The button opens the
-/// Meowcow Settings window (placeholder tabs until SuiteSettings exists). Each addition is independent:
+/// [CHANGED] New for the rebuild (was <c>Menu/MainMenu</c> + <c>OptionsButton</c>). The button opens
+/// Meowcow Settings (<see cref="MeowcowSettingsMenu"/>). Each addition is independent:
 /// if one can't be built, it's skipped with a warning and the menu stays otherwise vanilla.
 /// [PERFORMANCE] One MenuScreen search and two clones per menu load; nothing per frame.
 /// </remarks>
@@ -105,23 +105,7 @@ public static class MainMenu
         }
     }
 
-    // [CHANGED] The Meowcow Settings window, with placeholder tabs for now (SuiteUI slice 2b). Built on first click
-    // rather than at menu load, so players who never open it pay nothing; rebuilt after a scene change.
-    private const string SettingsWindowName = "MeowcowSettingsWindow";
-    private static MeowcowWindow? _settingsWindow;
+    // [CHANGED] Opens the Meowcow Settings menu, which builds its window from the declared settings.
+    private static void OnSettingsClicked() => MeowcowSettingsMenu.Open();
 
-    private static void OnSettingsClicked()
-    {
-        if (_settingsWindow == null || !_settingsWindow.IsAlive)
-        {
-            _settingsWindow = MeowcowWindow.CreateFromSettings(SettingsWindowName, SettingsButtonLabel);
-
-            // [CHANGED] Placeholder tabs (empty pages) to test tabs and LB/RB until SuiteSettings fills them.
-            _settingsWindow?.AddTab("General");
-            _settingsWindow?.AddTab("Modules");
-            _settingsWindow?.AddTab("About");
-        }
-
-        _settingsWindow?.Open();
-    }
 }

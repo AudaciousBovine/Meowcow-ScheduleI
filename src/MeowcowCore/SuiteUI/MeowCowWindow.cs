@@ -11,6 +11,7 @@ using MenuScreen = Il2CppScheduleOne.UI.MainMenu.MenuScreen;
 using SettingsScreen = Il2CppScheduleOne.UI.MainMenu.SettingsScreen;
 using UIPanel = Il2CppScheduleOne.UIPanel;
 using UIScreen = Il2CppScheduleOne.UIScreen;
+using UIContentPanel = Il2CppScheduleOne.UIContentPanel;
 using UISelectable = Il2CppScheduleOne.UISelectable;
 using UITab = Il2CppScheduleOne.UITab;
 using UObject = UnityEngine.Object;
@@ -26,7 +27,9 @@ namespace MeowcowCore.SuiteUI;
 /// <remarks>
 /// [CHANGED] Slice 2c: 1100×700 frame, tabs level with the content, LB/RB centred above the first tab,
 /// Back button, corner prompt hidden while open, dragging by the title (double-click recentres).
-/// Everything is event-driven: nothing runs per frame.
+/// [CHANGED] SuiteSettings slice 1: tabs hold pages (<see cref="WindowTab"/>, with subtabs) and pages hold
+/// rows (<see cref="WindowPage"/>), all cloned from vanilla's Settings pages and rows.
+/// Everything is event-driven: nothing of ours runs per frame.
 /// How the clone stays safe: it's made inside an inactive parent, so no vanilla code runs on it until
 /// the settings script has been swapped for a plain <c>MenuScreen</c>.
 /// [SOURCE] Vanilla <c>MenuScreen</c>, <c>SettingsScreen</c>, <c>MonoState</c>, <c>UIScreen</c>, <c>UITab</c>;
@@ -56,28 +59,32 @@ public sealed class MeowcowWindow
 
     private static readonly MeowcowLogger Log = CoreMod.Log.Tagged("Window");
 
-    /// <summary>One tab and its page.</summary>
-    private sealed class Tab
+    /// <summary>
+    /// Pieces of vanilla's Settings screen kept (hidden, scripts stripped) to clone the window's parts from.
+    /// Row templates may be missing if a game update removes them; those rows are then skipped.
+    /// </summary>
+    internal sealed class WindowTemplates
     {
-        public Tab(Toggle toggle, UISelectable? selectable, GameObject page, ScrollRect? scroll, UnityAction<bool> onToggle)
+        public WindowTemplates(GameObject tab, GameObject strip, GameObject page,
+            GameObject? toggleRow, GameObject? sliderRow, GameObject? choiceRow)
         {
-            Toggle = toggle;
-            Selectable = selectable;
+            Tab = tab;
+            Strip = strip;
             Page = page;
-            Scroll = scroll;
-            OnToggle = onToggle;
+            ToggleRow = toggleRow;
+            SliderRow = sliderRow;
+            ChoiceRow = choiceRow;
         }
 
-        public Toggle Toggle { get; }
-        public UISelectable? Selectable { get; }
+        public GameObject Tab { get; }
+        public GameObject Strip { get; }
         public GameObject Page { get; }
-        public ScrollRect? Scroll { get; }
-
-        /// <summary>Kept referenced: IL2CPP rule for converted delegates.</summary>
-        public UnityAction<bool> OnToggle { get; }
+        public GameObject? ToggleRow { get; }
+        public GameObject? SliderRow { get; }
+        public GameObject? ChoiceRow { get; }
     }
 
-    private readonly List<Tab> _tabs = new();
+    private readonly List<WindowTab> _tabs = new();
 
     // Event handlers, kept referenced (IL2CPP rule for converted delegates).
     private readonly List<Il2CppSystem.Object> _handlers = new();
@@ -94,20 +101,25 @@ public sealed class MeowcowWindow
     private Vector2 _lastClickPosition;
     private readonly UITab _tabStrip;
     private readonly RectTransform _tabsLayout;
-    private readonly GameObject _tabTemplate;
-    private readonly GameObject _pageTemplate;
+    private readonly ToggleGroup? _tabGroup;
 
     private MeowcowWindow(MenuScreen screen, RectTransform content, TMP_Text? title, UITab tabStrip,
-        RectTransform tabsLayout, GameObject tabTemplate, GameObject pageTemplate)
+        RectTransform tabsLayout, WindowTemplates templates)
     {
         Screen = screen;
         Content = content;
         Title = title;
         _tabStrip = tabStrip;
         _tabsLayout = tabsLayout;
-        _tabTemplate = tabTemplate;
-        _pageTemplate = pageTemplate;
+        _tabGroup = tabsLayout.GetComponent<ToggleGroup>();
+        Templates = templates;
     }
+
+    internal WindowTemplates Templates { get; }
+
+    /// <summary>Fired when the window closes, however it closed (Back, Escape, another screen opening).</summary>
+    /// <remarks>[CHANGED] New: Meowcow Settings saves pending changes on close.</remarks>
+    public event Action? Closed;
 
     /// <summary>The window's screen: vanilla's open/close and Escape handling live here.</summary>
     public MenuScreen Screen { get; }
@@ -141,55 +153,33 @@ public sealed class MeowcowWindow
     // ---------- Tabs ----------
 
     /// <summary>
-    /// Adds a tab at the bottom of the list and returns its page's content, where the tab's UI goes
-    /// (it scrolls when it outgrows the page). The first tab added is selected.
+    /// Adds a tab at the bottom of the list. Fill it with <see cref="WindowTab.AddPage"/>; with two or more
+    /// pages it gets a subtab strip. The first tab added is selected.
     /// </summary>
-    /// <remarks>[PERFORMANCE] Two clones (tab and page) per tab, once per window build.</remarks>
-    public RectTransform AddTab(string label)
+    /// <remarks>
+    /// [CHANGED] Returns a <see cref="WindowTab"/> (was the page's content) now that tabs hold subtab pages.
+    /// [PERFORMANCE] One tab clone per tab, once per window build.
+    /// </remarks>
+    public WindowTab AddTab(string label)
     {
         int index = _tabs.Count;
+        (Toggle toggle, UISelectable? selectable) = CreateTabButton(_tabsLayout, _tabStrip, _tabGroup, label, null,
+            on =>
+            {
+                if (on) ShowTab(index);
+            });
 
-        GameObject tabObject = UObject.Instantiate(_tabTemplate, _tabsLayout);
-        tabObject.name = "Tab " + label;
-        tabObject.SetActive(true);
+        // The tab's view: an empty object filling the content area, holding its strip and pages.
+        var view = new GameObject("Tab " + label);
+        view.AddComponent<RectTransform>();
+        view.transform.SetParent(Content, false);
+        SetRect(view.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        view.SetActive(false);
 
-        TMP_Text? text = tabObject.transform.Find(UIPathIndex.WindowTabLabel)?.GetComponent<TMP_Text>();
-        if (text != null) text.text = label;
-
-        LayoutElement layout = tabObject.GetComponent<LayoutElement>() ?? tabObject.AddComponent<LayoutElement>();
-        layout.minHeight = TabHeight;
-        layout.preferredHeight = TabHeight;
-
-        // A fresh event: no vanilla wiring, only ours. Converted once per tab and kept with the tab.
-        Toggle toggle = tabObject.GetComponent<Toggle>();
-        toggle.onValueChanged = new Toggle.ToggleEvent();
-        toggle.isOn = false;
-        UnityAction<bool> onToggle = DelegateSupport.ConvertDelegate<UnityAction<bool>>(
-                new Action<bool>(on => OnTabToggled(index, on)))
-            ?? throw new InvalidOperationException("Couldn't convert the tab handler for IL2CPP");
-        toggle.onValueChanged.AddListener(onToggle);
-
-        // Into the tab strip's gamepad list, so LB/RB reach it. Vanilla's UITab.Start does the
-        // "ignore when navigating" part, but only for tabs present at Start; doing it here covers both.
-        UISelectable? selectable = tabObject.GetComponent<UISelectable>();
-        if (selectable != null)
-        {
-            _tabStrip.AddSelectable(selectable);
-            selectable.SetIgnoreWhenNavigating(true);
-        }
-
-        GameObject page = UObject.Instantiate(_pageTemplate, Content);
-        page.name = "Page " + label;
-        page.SetActive(false);
-        RectTransform pageRect = page.GetComponent<RectTransform>();
-        SetRect(pageRect, Vector2.zero, Vector2.one,
-            new Vector2(PagePadding, PagePadding), new Vector2(-PagePadding, -PagePadding));
-        ScrollRect? scroll = page.GetComponent<ScrollRect>();
-
-        _tabs.Add(new Tab(toggle, selectable, page, scroll, onToggle));
-        if (index == 0) toggle.isOn = true; // shows the first page
-
-        return scroll != null && scroll.content != null ? scroll.content : pageRect;
+        var tab = new WindowTab(this, label, view, toggle, selectable);
+        _tabs.Add(tab);
+        if (index == 0) toggle.isOn = true; // shows the first tab
+        return tab;
     }
 
     /// <summary>Selects a tab, as if it were clicked.</summary>
@@ -199,21 +189,64 @@ public sealed class MeowcowWindow
         _tabs[index].Toggle.isOn = true; // the toggle group turns the others off
     }
 
-    /// <summary>A tab's toggle changed. Called from native code: exceptions must never escape.</summary>
-    private void OnTabToggled(int index, bool on)
+    /// <summary>
+    /// A tab button cloned from vanilla's tab, in a strip's list and gamepad list. Used for the left tabs and
+    /// for subtabs. <paramref name="onToggled"/> runs safely when it's switched on or off.
+    /// </summary>
+    /// <param name="width">Fixed width for a horizontal strip; null to let a vertical list size it.</param>
+    /// <remarks>
+    /// [CHANGED] Shared by tabs and subtabs (was inside AddTab). The toggle group is set explicitly: the
+    /// template still belongs to the main strip's group.
+    /// </remarks>
+    internal (Toggle toggle, UISelectable? selectable) CreateTabButton(Transform layout, UITab strip, ToggleGroup? group,
+        string label, float? width, Action<bool> onToggled)
     {
-        try
+        GameObject button = UObject.Instantiate(Templates.Tab, layout);
+        button.name = "Tab " + label;
+
+        TMP_Text? text = button.transform.Find(UIPathIndex.WindowTabLabel)?.GetComponent<TMP_Text>();
+        if (text != null) text.text = label;
+
+        LayoutElement element = button.GetComponent<LayoutElement>() ?? button.AddComponent<LayoutElement>();
+        element.minHeight = TabHeight;
+        element.preferredHeight = TabHeight;
+        if (width.HasValue)
         {
-            if (on) ShowTab(index);
+            element.minWidth = width.Value;
+            element.preferredWidth = width.Value;
         }
-        catch (Exception e)
+
+        // A fresh event: no vanilla wiring, only ours. Converted once per button and kept by the window.
+        Toggle toggle = button.GetComponent<Toggle>();
+        toggle.onValueChanged = new Toggle.ToggleEvent();
+        toggle.isOn = false;
+        toggle.interactable = true; // every new button starts clickable; its tab or page manages it from here
+        toggle.group = group;
+        toggle.onValueChanged.AddListener(Keep(UIBuilder.ToIl2Cpp<UnityAction<bool>>(
+            new Action<bool>(on => UIBuilder.RunSafely(() => onToggled(on), $"Tab '{label}'")))));
+
+        // Into the strip's gamepad list, so its bumpers reach it. Vanilla's UITab.Start does the
+        // "ignore when navigating" part, but only for buttons present at Start; doing it here covers both.
+        UISelectable? selectable = button.GetComponent<UISelectable>();
+        if (selectable != null)
         {
-            Log.Error($"Switching to tab {index} failed", e);
+            strip.AddSelectable(selectable);
+            selectable.SetIgnoreWhenNavigating(true);
         }
+
+        button.SetActive(true);
+        return (toggle, selectable);
+    }
+
+    /// <summary>Keeps a converted handler referenced for the window's lifetime (IL2CPP rule).</summary>
+    internal T Keep<T>(T handler) where T : Il2CppSystem.Object
+    {
+        _handlers.Add(handler);
+        return handler;
     }
 
     /// <summary>
-    /// Shows one tab's page and hides the rest. The selected tab can't be clicked again, as in vanilla.
+    /// Shows one tab and hides the rest. The selected tab can't be clicked again, as in vanilla.
     /// </summary>
     private void ShowTab(int index)
     {
@@ -221,13 +254,9 @@ public sealed class MeowcowWindow
         for (int i = 0; i < _tabs.Count; i++)
         {
             _tabs[i].Toggle.interactable = i != index;
-            _tabs[i].Page.SetActive(i == index);
+            _tabs[i].SetVisible(i == index);
         }
-
-        // The gamepad's scroll stick scrolls the visible page.
-        Tab tab = _tabs[index];
-        if (tab.Scroll != null && Screen.uiScreen != null) Screen.uiScreen.ChangeActiveScrollRect(tab.Scroll);
-
+        _tabs[index].OnShown();
         Log.Debug($"Tab {index} shown");
     }
 
@@ -241,6 +270,7 @@ public sealed class MeowcowWindow
         try
         {
             _tabStrip.Select(_tabs[SelectedTab].Selectable, true);
+            _tabs[SelectedTab].OnShown(); // the subtab strip's focus and the page's scrolling
         }
         catch (Exception e)
         {
@@ -327,14 +357,21 @@ public sealed class MeowcowWindow
             return null;
         }
 
-        // Templates first, while vanilla's pieces still exist.
+        // Templates first, while vanilla's pieces still exist. [CHANGED] Rows before the page, since
+        // taking the page empties its rows; the strip before the main tabs turn vertical.
+        GameObject? toggleRow = TakeRowTemplate(screen, content, root, FindFirst<Il2CppScheduleOne.UIToggle>(content), "ToggleRowTemplate");
+        GameObject? sliderRow = TakeRowTemplate(screen, content, root, FindFirst<Il2CppScheduleOne.UISlider>(content), "SliderRowTemplate");
+        GameObject? choiceRow = TakeRowTemplate(screen, content, root, FindChoiceRow(content), "ChoiceRowTemplate");
+        GameObject? stripTemplate = TakeStripTemplate(tabsPanel, root);
         GameObject? tabTemplate = TakeTabTemplate(tabsLayout, root);
-        GameObject? pageTemplate = TakePageTemplate(content, root);
-        if (tabTemplate == null || pageTemplate == null)
+        GameObject? pageTemplate = TakePageTemplate(screen, content, root);
+        if (tabTemplate == null || pageTemplate == null || stripTemplate == null)
         {
-            Log.Warning("Settings screen has no tab or scroll view to copy; window not built");
+            Log.Warning("Settings screen has no tab, strip or page to copy; window not built");
             return null;
         }
+        if (toggleRow == null || sliderRow == null || choiceRow == null)
+            Log.Warning("Settings screen is missing a row type; rows of that type won't be shown");
 
         // Vanilla's tabs: out of the strip's gamepad list, then gone.
         tabStrip.selectables.Clear();
@@ -355,7 +392,8 @@ public sealed class MeowcowWindow
         tabStrip.cycleDirection = UITab.CycleDirection.Vertical;
         tabStrip.reverseCycleDirection = true;
 
-        var window = new MeowcowWindow(screen, content, titleText, tabStrip, tabsLayout, tabTemplate, pageTemplate);
+        var templates = new WindowTemplates(tabTemplate, stripTemplate, pageTemplate, toggleRow, sliderRow, choiceRow);
+        var window = new MeowcowWindow(screen, content, titleText, tabStrip, tabsLayout, templates);
         window.AddBackButton(root);
         window.HookOpenClose();
         if (titleText != null) window.MakeDraggable(titleText);
@@ -373,41 +411,135 @@ public sealed class MeowcowWindow
             tab.SetParent(root, false);
             tab.gameObject.SetActive(false);
             tab.name = "TabTemplate";
+
+            // [CHANGED] A clone copies vanilla's *current* state. If vanilla Settings was opened earlier,
+            // this tab is the selected one: on, and made unclickable by SettingsScreen.ShowCategory. Every
+            // tab cloned from it would start unclickable, so the template is reset to a plain, clickable tab.
+            Toggle toggle = tab.GetComponent<Toggle>();
+            toggle.isOn = false;
+            toggle.interactable = true;
             return tab.gameObject;
         }
         return null;
     }
 
     /// <summary>
-    /// One of vanilla's scroll views (one with a scrollbar if there is one), emptied, moved out of the
-    /// content area and switched off, to clone pages from.
+    /// One of vanilla's pages (a gamepad panel holding a scroll view, preferably with a scrollbar), emptied
+    /// of rows and leftovers, stripped and switched off, to clone pages from.
     /// </summary>
-    private static GameObject? TakePageTemplate(RectTransform content, Transform root)
+    /// <remarks>
+    /// [CHANGED] Was the scroll view alone; the whole page brings its gamepad panel, so rows are reachable
+    /// by gamepad and the page scrolls to the selected row. Dropdown item lists also have a panel and a
+    /// scroll view, so they're skipped by name.
+    /// </remarks>
+    private static GameObject? TakePageTemplate(MenuScreen screen, RectTransform content, Transform root)
     {
-        ScrollRect? chosen = null;
-        foreach (ScrollRect scroll in content.GetComponentsInChildren<ScrollRect>(true))
+        UIContentPanel? chosen = null;
+        ScrollRect? chosenScroll = null;
+        foreach (UIContentPanel panel in content.GetComponentsInChildren<UIContentPanel>(true))
         {
-            chosen ??= scroll;
-            if (scroll.verticalScrollbar != null)
+            if (panel.name == UIPathIndex.DropdownTemplate) continue;
+            var scrolls = panel.GetComponentsInChildren<ScrollRect>(true);
+            if (scrolls.Length == 0) continue;
+
+            if (chosen == null)
             {
-                chosen = scroll;
+                chosen = panel;
+                chosenScroll = scrolls[0];
+            }
+            if (scrolls[0].verticalScrollbar != null)
+            {
+                chosen = panel;
+                chosenScroll = scrolls[0];
                 break;
             }
         }
-        if (chosen == null) return null;
+        if (chosen == null || chosenScroll == null) return null;
 
-        // Vanilla's settings rows go; the scroll view keeps its look, viewport and scrollbar.
-        RectTransform? rows = chosen.content;
+        // Out of the window's gamepad screen before it's changed (see DetachPanels).
+        DetachPanels(screen, chosen.transform);
+
+        // Vanilla's rows go, and anything beside the scroll view (e.g. Display's Apply button).
+        RectTransform? rows = chosenScroll.content;
         if (rows != null)
         {
             for (int i = rows.childCount - 1; i >= 0; i--) UObject.DestroyImmediate(rows.GetChild(i).gameObject);
         }
+        Transform page = chosen.transform;
+        for (int i = page.childCount - 1; i >= 0; i--)
+        {
+            Transform child = page.GetChild(i);
+            if (!chosenScroll.transform.IsChildOf(child)) UObject.DestroyImmediate(child.gameObject);
+        }
+
+        // Its state reset too: no rows in its gamepad list, nothing to select by default.
+        chosen.ClearAllSelectables();
+        chosen.defaultSelectable = null;
 
         GameObject template = chosen.gameObject;
+        UIBuilder.StripScripts(template);
         template.transform.SetParent(root, false);
         template.SetActive(false);
         template.name = "PageTemplate";
         return template;
+    }
+
+    /// <summary>
+    /// A copy of vanilla's tab strip while it's still horizontal, emptied, to clone subtab strips from.
+    /// </summary>
+    /// <remarks>[CHANGED] New for subtabs.</remarks>
+    private static GameObject? TakeStripTemplate(RectTransform tabsPanel, Transform root)
+    {
+        GameObject strip = UObject.Instantiate(tabsPanel.gameObject, root); // inside the inactive staging object
+        strip.name = "StripTemplate";
+        strip.SetActive(false);
+
+        UITab? tab = strip.GetComponent<UITab>();
+        Transform? layout = strip.transform.Find(UIPathIndex.TabStripLayout);
+        if (tab == null || layout == null)
+        {
+            UObject.DestroyImmediate(strip);
+            return null;
+        }
+
+        tab.selectables.Clear();
+        for (int i = layout.childCount - 1; i >= 0; i--) UObject.DestroyImmediate(layout.GetChild(i).gameObject);
+        return strip;
+    }
+
+    /// <summary>
+    /// A vanilla setting row, moved out, stripped of its setting script (allow-list) and switched off, to
+    /// clone rows from. Null if there's no such row.
+    /// </summary>
+    /// <remarks>[CHANGED] New for SuiteSettings' rows.</remarks>
+    private static GameObject? TakeRowTemplate(MenuScreen screen, RectTransform content, Transform root, GameObject? row, string name)
+    {
+        if (row == null) return null;
+
+        DetachPanels(screen, row.transform); // a dropdown's item list has a gamepad panel of its own
+        UIBuilder.StripScripts(row);
+        row.transform.SetParent(root, false);
+        row.SetActive(false);
+        row.name = name;
+        return row;
+    }
+
+    /// <summary>The object of the first component of a type under the content area, or null.</summary>
+    private static GameObject? FindFirst<T>(RectTransform content) where T : Component
+    {
+        var found = content.GetComponentsInChildren<T>(true);
+        return found.Length > 0 ? found[0].gameObject : null;
+    }
+
+    /// <summary>The first dropdown row: the row holding a dropdown, with its name label beside it.</summary>
+    private static GameObject? FindChoiceRow(RectTransform content)
+    {
+        foreach (TMP_Dropdown dropdown in content.GetComponentsInChildren<TMP_Dropdown>(true))
+        {
+            Transform? row = dropdown.transform.parent;
+            if (row != null && row.Find(UIPathIndex.RowOptionName) != null) return row.gameObject;
+        }
+        return null;
     }
 
     /// <summary>Destroys a direct child by name, detaching its gamepad panels first. Missing is fine.</summary>
@@ -602,6 +734,7 @@ public sealed class MeowcowWindow
             // Only restored if it was showing before, so a prompt hidden by vanilla stays hidden.
             if (_cornerPromptWasActive && _cornerPrompt != null) _cornerPrompt.SetActive(true);
             _cornerPromptWasActive = false;
+            Closed?.Invoke();
         }
         catch (Exception e)
         {
@@ -711,7 +844,7 @@ public sealed class MeowcowWindow
     }
 
     /// <summary>Sets anchors and edge offsets in one call.</summary>
-    private static void SetRect(RectTransform rect, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+    internal static void SetRect(RectTransform rect, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
     {
         rect.anchorMin = anchorMin;
         rect.anchorMax = anchorMax;

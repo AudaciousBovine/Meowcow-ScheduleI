@@ -55,6 +55,9 @@ public static class UIPathIndex
     /// <summary>Under a framed screen: the tab list (layout group and toggle group).</summary>
     public const string WindowTabsLayout = "TabsPanel/TabsLayout";
 
+    /// <summary>Under a tab strip: its tab list.</summary>
+    public const string TabStripLayout = "TabsLayout";
+
     /// <summary>Under a tab: its label.</summary>
     public const string WindowTabLabel = "Label";
 
@@ -73,6 +76,18 @@ public static class UIPathIndex
 
     /// <summary>Under a framed screen: the pattern behind the window (1000×842 in vanilla).</summary>
     public const string WindowPattern = "Background/Image";
+
+    // ---------- Setting rows (inside the Settings screen's pages) ----------
+    // [CHANGED] Added for MeowcowWindow's rows. Found with UIBuilder.DumpHierarchy.
+
+    /// <summary>A choice row's label (on/off and slider rows label themselves through UIOption).</summary>
+    public const string RowOptionName = "Option Name - Text (TMP)";
+
+    /// <summary>A choice row's dropdown.</summary>
+    public const string RowDropdown = "Dropdown";
+
+    /// <summary>A dropdown's hidden item list (has its own gamepad panel; not a page).</summary>
+    public const string DropdownTemplate = "Template";
 
     // ---------- Other pieces ----------
 

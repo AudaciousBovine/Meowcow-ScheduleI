@@ -6,6 +6,7 @@ using Il2CppScheduleOne.Persistence;
 using Il2CppScheduleOne.PlayerScripts;
 using MeowcowCore.Menus;
 using MeowcowCore.ModuleApi;
+using MeowcowCore.SuiteSettings;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 
@@ -84,6 +85,10 @@ public static class CoreLifecycle
 
         // [CHANGED] Every mod has registered by now (OnInitializeMelon all run before the first scene).
         SuiteModules.LogRegisteredOnce();
+
+        // [CHANGED] Writes settings files that differ from what was declared (new, removed or corrected
+        // settings, or changes still pending). Only files whose contents changed are written.
+        MeowcowSettings.FlushAll();
 
         Log.Info("Menu");
 

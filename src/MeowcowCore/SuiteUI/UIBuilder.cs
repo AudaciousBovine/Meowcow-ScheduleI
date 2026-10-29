@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes;
 using Il2CppTMPro;
 using MeowcowCore.Foundation;
 using UnityEngine;
@@ -122,6 +123,68 @@ public static class UIBuilder
         Button button = go.GetComponent<Button>();
         SetClick(button, onClick);
         return button;
+    }
+
+    // [CHANGED] Vanilla scripts kept when stripping a clone: generic controls and gamepad pieces, never
+    // anything tied to one game setting. By type name, since several are vanilla classes.
+    private static readonly HashSet<string> KeptVanillaScripts = new(StringComparer.Ordinal)
+    {
+        "UISelectable", "UIToggle", "UISlider", "UIContentPanel", "UIDropdownContent",
+        "ButtonSound", "AudioSourceController",
+    };
+
+    /// <summary>
+    /// Removes every script from a clone except an allow-list: graphics, Unity's controls and layout, and
+    /// vanilla's generic controls (<c>UIToggle</c>, <c>UISlider</c>, <c>UISelectable</c>, gamepad panels,
+    /// sounds). Anything else, like the script tying a row to one game setting (<c>VSyncToggle</c>,
+    /// <c>AudioSlider</c>), is removed, including scripts we've never seen.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New for setting rows. An allow-list rather than a list of scripts to remove: a future game
+    /// script is removed by default instead of left running on our UI. EventTriggers go too: their saved
+    /// targets may be the removed scripts.
+    /// [PERFORMANCE] One pass over the clone's scripts; templates only, once per window build.
+    /// </remarks>
+    public static void StripScripts(GameObject root)
+    {
+        foreach (MonoBehaviour behaviour in root.GetComponentsInChildren<MonoBehaviour>(true))
+        {
+            if (behaviour == null || IsKept(behaviour)) continue;
+            UObject.DestroyImmediate(behaviour);
+        }
+    }
+
+    private static bool IsKept(MonoBehaviour behaviour) =>
+        behaviour.TryCast<Graphic>() != null
+        || behaviour.TryCast<Selectable>() != null
+        || behaviour.TryCast<LayoutGroup>() != null
+        || behaviour.TryCast<LayoutElement>() != null
+        || behaviour.TryCast<ContentSizeFitter>() != null
+        || behaviour.TryCast<Mask>() != null
+        || behaviour.TryCast<RectMask2D>() != null
+        || behaviour.TryCast<ScrollRect>() != null
+        || behaviour.TryCast<ToggleGroup>() != null
+        || KeptVanillaScripts.Contains(behaviour.GetIl2CppType().Name);
+
+    /// <summary>
+    /// Converts a handler for IL2CPP, failing loudly instead of returning null. Keep the result referenced.
+    /// </summary>
+    /// <remarks>[CHANGED] New: one place for the conversion and its null check.</remarks>
+    public static T ToIl2Cpp<T>(Delegate handler) where T : Il2CppObjectBase =>
+        DelegateSupport.ConvertDelegate<T>(handler)
+        ?? throw new InvalidOperationException($"Couldn't convert a handler to {typeof(T).Name} for IL2CPP");
+
+    /// <summary>Runs code called from native code (UI events): exceptions are logged, never thrown.</summary>
+    public static void RunSafely(Action action, string what)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception e)
+        {
+            Log.Error($"{what} failed", e);
+        }
     }
 
     /// <summary>
