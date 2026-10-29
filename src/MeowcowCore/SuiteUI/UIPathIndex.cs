@@ -124,6 +124,9 @@ public static class UIPathIndex
     /// <summary>The loose "Esc Back" prompt in the main menu's corner.</summary>
     public const string MenuCornerPrompt = "BottomLeftMenuPivot";
 
+    /// <summary>Under the corner prompt: the text beside the key ("Back"), the size prompt text is shown at.</summary>
+    public const string PromptLabel = "PromptLabel";
+
     /// <summary>
     /// Finds the save slots' Import button (main menu only). Null where there are no save slots.
     /// </summary>

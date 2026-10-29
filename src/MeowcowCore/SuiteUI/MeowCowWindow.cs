@@ -26,7 +26,8 @@ namespace MeowcowCore.SuiteUI;
 /// </summary>
 /// <remarks>
 /// [CHANGED] Slice 2c: 1100×700 frame, tabs level with the content, LB/RB centred above the first tab,
-/// Back button (showing vanilla's own Back prompt while open), dragging by the title (double-click recentres).
+/// Back button (from the template registry, with its own live key prompt), dragging by the title
+/// (double-click recentres).
 /// [CHANGED] SuiteSettings slice 1: tabs hold pages (<see cref="WindowTab"/>, with subtabs) and pages hold
 /// rows (<see cref="WindowPage"/>), all cloned from vanilla's Settings pages and rows.
 /// Everything is event-driven: nothing of ours runs per frame.
@@ -46,8 +47,8 @@ public sealed class MeowcowWindow
     private const float TabSpacing = 4f;
     private const float PagePadding = 10f;   // between the content area's edge and a page
     private const float BumperGap = 8f;      // between the LB and RB prompts
-    // [CHANGED] Was 120×30: vanilla's Back prompt (borrowed into the button) is as tall as 30, leaving no
-    // margin around its key. 40 still fits the 50-unit footer, centred.
+    // [CHANGED] Was 120×30: the Back prompt (now the button's own, from the template registry) is as tall
+    // as 30, leaving no margin around its key. 40 still fits the 50-unit footer, centred.
     private const float BackWidth = 140f;
     private const float BackHeight = 40f;
     private const string BackLabel = "<color=#9A9A9A>Esc</color>   Back";
@@ -93,39 +94,10 @@ public sealed class MeowcowWindow
 
     private RectTransform? _root;
     private float _canvasScale = 1f;
-    // [CHANGED] The Back button borrows vanilla's corner "Back" prompt while open (see BorrowPrompt).
-    private Button? _backButton;
-    private TMP_Text? _backText;
-    private BorrowedPrompt? _borrowed;
-    private static MeowcowWindow? _borrower;     // the window holding the prompt, if any
-    private static bool _promptDumped;           // the prompt's hierarchy is logged once (debug)
-
-    /// <summary>Where vanilla's corner prompt was, so it goes back exactly as it was.</summary>
-    private sealed class BorrowedPrompt
-    {
-        public BorrowedPrompt(RectTransform prompt)
-        {
-            Prompt = prompt;
-            Parent = prompt.parent;
-            SiblingIndex = prompt.GetSiblingIndex();
-            AnchorMin = prompt.anchorMin;
-            AnchorMax = prompt.anchorMax;
-            Pivot = prompt.pivot;
-            AnchoredPosition = prompt.anchoredPosition;
-            SizeDelta = prompt.sizeDelta;
-            LocalScale = prompt.localScale;
-        }
-
-        public RectTransform Prompt { get; }
-        public Transform? Parent { get; }
-        public int SiblingIndex { get; }
-        public Vector2 AnchorMin { get; }
-        public Vector2 AnchorMax { get; }
-        public Vector2 Pivot { get; }
-        public Vector2 AnchoredPosition { get; }
-        public Vector2 SizeDelta { get; }
-        public Vector3 LocalScale { get; }
-    }
+    // [CHANGED] Vanilla's corner "Back" prompt is hidden while the window is open (our Back button has its
+    // own prompt, from the template registry), and shown again on close if it was showing.
+    private GameObject? _cornerPrompt;
+    private bool _cornerPromptWasActive;
 
     // [CHANGED] Our own double-click tracking (see OnTitleClick).
     private const float DoubleClickTime = 0.25f;     // seconds between the two clicks
@@ -988,23 +960,23 @@ public sealed class MeowcowWindow
     // ---------- Back button ----------
 
     /// <summary>
-    /// Back in the footer's left corner, styled like the save slots' Import button. Without the style
-    /// source (e.g. in-game), there's no button; Escape still closes the window.
+    /// Back in the footer's left corner: the registry's Back button (dark button, live key prompt, "Back").
+    /// Without it (its vanilla sources weren't found), there's no button; Escape still closes the window.
     /// </summary>
-    /// <remarks>[CHANGED] New in 2c. [SOURCE] Findings doc §3 (Back button).</remarks>
+    /// <remarks>
+    /// [CHANGED] From the template registry (was: a clone of the Import button found in the current scene,
+    /// which doesn't exist in-game, borrowing vanilla's corner prompt while open).
+    /// </remarks>
     private void AddBackButton(Transform root)
     {
-        Button? style = UIPathIndex.FindImportButton();
-        if (style == null)
+        GameObject? back = UITemplateRegistry.Create(UITemplateRegistry.BackButton, root, "Back");
+        if (back == null)
         {
-            Log.Debug("No Import button to copy; window has no Back button (Escape still works)");
+            Log.Debug("No Back button in the registry; window has none (Escape still works)");
             return;
         }
 
-        Button back = UIBuilder.CloneButton(style, root, "Back", BackLabel, CloseCurrentScreen);
-        _backButton = back;
-        var labels = back.GetComponentsInChildren<TMP_Text>(true);
-        _backText = labels.Length > 0 ? labels[0] : null;
+        UIBuilder.SetClick(back.GetComponent<Button>(), CloseCurrentScreen);
         RectTransform rect = back.GetComponent<RectTransform>();
         rect.anchorMin = Vector2.zero;
         rect.anchorMax = Vector2.zero;
@@ -1026,8 +998,8 @@ public sealed class MeowcowWindow
     // ---------- Open and close ----------
 
     /// <summary>
-    /// Follows the screen's own open and close (whatever caused them, Escape included): on open, the Back
-    /// button borrows vanilla's corner "Back" prompt; on close, it's returned and <see cref="Closed"/> fires.
+    /// Follows the screen's own open and close (whatever caused them, Escape included): vanilla's corner
+    /// "Back" prompt is hidden while open, and <see cref="Closed"/> fires on close.
     /// </summary>
     /// <remarks>
     /// [CHANGED] New in 2c. Uses the state's events rather than checking every frame.
@@ -1050,7 +1022,8 @@ public sealed class MeowcowWindow
     {
         try
         {
-            BorrowPrompt();
+            HideCornerPrompt();
+            InputPrompts.Shown(_root ?? Screen.transform); // [CHANGED] key prompts (e.g. Back's) follow the device
             // [CHANGED] Here as well as in Open(): an adopted screen is opened by vanilla's own buttons.
             SelectTabStrip();
         }
@@ -1065,7 +1038,10 @@ public sealed class MeowcowWindow
     {
         try
         {
-            ReturnPrompt();
+            InputPrompts.Hidden(_root ?? Screen.transform);
+            // Only shown again if it was showing before, so a prompt vanilla hid stays hidden.
+            if (_cornerPromptWasActive && _cornerPrompt != null) _cornerPrompt.SetActive(true);
+            _cornerPromptWasActive = false;
             Closed?.Invoke();
         }
         catch (Exception e)
@@ -1074,82 +1050,21 @@ public sealed class MeowcowWindow
         }
     }
 
-    // ---------- The Back button's prompt ----------
+    // ---------- Vanilla's corner prompt ----------
 
     /// <summary>
-    /// Moves vanilla's corner "Back" prompt into our Back button, in place of its text. Vanilla keeps that
-    /// prompt right for the input device, the controller type and rebinding, so the button always shows the
-    /// right button (Esc, B, Circle...) with no device logic of ours. Only a prompt that's showing is
-    /// borrowed; without one, the button keeps its text.
+    /// Hides vanilla's corner "Esc Back" prompt while the window is open, so there aren't two Back prompts.
+    /// Looked up on each open: it belongs to the current scene's menu.
     /// </summary>
     /// <remarks>
-    /// [CHANGED] New (was: hide the corner prompt while open). Idea: Evelyna.
-    /// [PERFORMANCE] One lookup and one reparent per open.
+    /// [CHANGED] Hidden, not borrowed: switching it off and on again is all there is to undo.
+    /// [PERFORMANCE] One lookup per open.
     /// </remarks>
-    private void BorrowPrompt()
+    private void HideCornerPrompt()
     {
-        if (_backButton == null || _borrowed != null) return;
-
-        // Looked up on each open: the prompt belongs to the menu, which is rebuilt per scene.
-        GameObject? found = GameObject.Find(UIPathIndex.MenuCornerPrompt); // only finds it if it's showing
-        RectTransform? prompt = found != null ? found.GetComponent<RectTransform>() : null;
-        if (prompt == null) return;
-
-        if (!_promptDumped)
-        {
-            _promptDumped = true;
-            UIBuilder.DumpHierarchy(prompt, Log); // debug only: what the borrowed prompt is made of
-        }
-
-        _borrowed = new BorrowedPrompt(prompt);
-        _borrower = this;
-
-        // Centred in the button. It comes from another canvas, which may scale differently, so its scale
-        // is reset here and restored on return.
-        prompt.SetParent(_backButton.transform, false);
-        prompt.anchorMin = new Vector2(0.5f, 0.5f);
-        prompt.anchorMax = new Vector2(0.5f, 0.5f);
-        prompt.pivot = new Vector2(0.5f, 0.5f);
-        prompt.anchoredPosition = Vector2.zero;
-        prompt.localScale = Vector3.one;
-        if (_backText != null) _backText.gameObject.SetActive(false);
-    }
-
-    /// <summary>Puts vanilla's prompt back exactly where it was, and the button's text back.</summary>
-    private void ReturnPrompt()
-    {
-        BorrowedPrompt? borrowed = _borrowed;
-        _borrowed = null;
-        if (_borrower == this) _borrower = null;
-        if (_backText != null) _backText.gameObject.SetActive(true);
-        if (borrowed == null || borrowed.Prompt == null) return;
-
-        RectTransform prompt = borrowed.Prompt;
-        prompt.SetParent(borrowed.Parent, false);
-        if (borrowed.Parent != null) prompt.SetSiblingIndex(borrowed.SiblingIndex);
-        prompt.anchorMin = borrowed.AnchorMin;
-        prompt.anchorMax = borrowed.AnchorMax;
-        prompt.pivot = borrowed.Pivot;
-        prompt.anchoredPosition = borrowed.AnchoredPosition;
-        prompt.sizeDelta = borrowed.SizeDelta;
-        prompt.localScale = borrowed.LocalScale;
-    }
-
-    /// <summary>
-    /// Guard: returns the borrowed prompt before a scene change, in case a window is torn down without
-    /// closing. A prompt left inside a destroyed window would be destroyed with it.
-    /// </summary>
-    /// <remarks>[CHANGED] New. Called by CoreLifecycle on every pre-scene-change, in or out of a session.</remarks>
-    internal static void ReturnBorrowedPrompt()
-    {
-        try
-        {
-            _borrower?.ReturnPrompt();
-        }
-        catch (Exception e)
-        {
-            Log.Error("Couldn't return the borrowed Back prompt", e);
-        }
+        _cornerPrompt = GameObject.Find(UIPathIndex.MenuCornerPrompt); // only finds it if it's showing
+        _cornerPromptWasActive = _cornerPrompt != null && _cornerPrompt.activeSelf;
+        if (_cornerPromptWasActive) _cornerPrompt!.SetActive(false);
     }
 
     // ---------- Dragging ----------

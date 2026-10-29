@@ -106,12 +106,7 @@ public static class UIBuilder
     {
         GameObject go = UObject.Instantiate(source.gameObject, parent);
         go.name = name;
-
-        foreach (MonoBehaviour behaviour in go.GetComponentsInChildren<MonoBehaviour>(true))
-        {
-            if (behaviour.TryCast<Graphic>() != null || behaviour.TryCast<Selectable>() != null) continue;
-            UObject.DestroyImmediate(behaviour);
-        }
+        StripToLook(go);
 
         var labels = go.GetComponentsInChildren<TMP_Text>(true);
         if (labels.Length > 0)
@@ -123,6 +118,20 @@ public static class UIBuilder
         Button button = go.GetComponent<Button>();
         SetClick(button, onClick);
         return button;
+    }
+
+    /// <summary>
+    /// Removes every script except graphics and Unity's controls: what's left is only how it looks and that
+    /// it can be clicked. For simple pieces like buttons.
+    /// </summary>
+    /// <remarks>[CHANGED] Split out of CloneButton, for the template registry too.</remarks>
+    public static void StripToLook(GameObject root)
+    {
+        foreach (MonoBehaviour behaviour in root.GetComponentsInChildren<MonoBehaviour>(true))
+        {
+            if (behaviour == null || behaviour.TryCast<Graphic>() != null || behaviour.TryCast<Selectable>() != null) continue;
+            UObject.DestroyImmediate(behaviour);
+        }
     }
 
     // [CHANGED] Vanilla scripts kept when stripping a clone: generic controls and gamepad pieces, never

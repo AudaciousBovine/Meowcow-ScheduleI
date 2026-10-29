@@ -49,9 +49,11 @@ public static class MainMenu
         AddSettingsButton(home.transform);
         AddSuiteTag(home.transform);
 
-        // [CHANGED] Vanilla's Settings, reorganised into the suite's layout (before the player can open it).
+        // [CHANGED] The template registry's pieces first (they're made from this menu's vanilla parts, and
+        // windows use them), then vanilla's Settings, reorganised (before the player can open it).
         try
         {
+            UITemplateRegistry.CaptureMissing();
             SettingsMenu.Setup();
         }
         catch (Exception e)
