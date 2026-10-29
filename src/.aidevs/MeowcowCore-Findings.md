@@ -6,8 +6,8 @@ The original code is still on `main`; file names are given as `[SOURCE]` for eac
 
 Remove a finding from this doc once it has been built into the new Core.
 Already built (and so removed): the main menu paths and additions, button and text cloning, gamepad
-list registration, layout helpers, the window frame (metrics, pattern, Back, corner prompt, dragging)
-and the one-frame setup delay.
+list registration, layout helpers, the window frame (metrics, pattern, Back, corner prompt, dragging),
+the one-frame setup delay, and the settings files (code-defined settings, validation, atomic writes).
 
 ---
 
@@ -61,22 +61,10 @@ and the one-frame setup delay.
 
 ---
 
-## 4. Settings files → SuiteSettings (§8)
+## 4. Colour settings → SuiteSettings (§8), when a colour setting is needed
 
-`[SOURCE]` `Settings/SettingsFile.cs`, `Settings/SettingsModel.cs`, `Settings/ColorHex.cs`
+`[SOURCE]` `Settings/ColorHex.cs`
 
-- **Code defines, file supplies values:** each mod defines its settings in code (labels, types, limits,
-  defaults); loading merges the file's values in and writes the result back, so new settings appear,
-  removed ones disappear and descriptions stay current while the player's values are kept.
-- **Validation:** invalid values fall back to the default with a warning; numbers are clamped to min/max;
-  choices match case-insensitively and are stored in their canonical spelling; NaN and infinity rejected.
-- **Atomic write:** write to a temp file, then `File.Move(tmp, path, overwrite: true)`, so a reader never
-  sees half a file. Only write when the contents changed.
-- **JSON options:** `WriteIndented = true`, `JavaScriptEncoder.UnsafeRelaxedJsonEscaping` (keeps `+` and
-  `'` readable in a local file); `Value` always written so hand-editors see it.
-- **A null default meant "the mod decides"** (e.g. vanilla placement).
-- **Dropped:** the old timestamp polling for hand edits while the game runs. The new design only
-  supports hand-editing with the game closed (§2), so it isn't needed.
 - **`ColorHex`:** parses `#RRGGBB` or `#RRGGBBAA` (`#` optional); six digits reports `hasAlpha = false`
   so callers can keep their own alpha; `Normalize` gives a leading `#` and upper case. Port as is.
 

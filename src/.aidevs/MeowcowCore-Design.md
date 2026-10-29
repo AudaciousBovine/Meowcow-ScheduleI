@@ -3,8 +3,9 @@
 Status: **agreed design.** Supersedes `MeowcowCore-DesignPlan.md`.
 Built and tested in-game: **Foundation** (`MeowcowLogger`, `CorePathIndex`, `CoreLifecycle`, `CoreMod`),
 the first part of **ModuleApi** (`IMeowcowModule`, `WakeTrigger`, `SessionInfo`, `SuiteModules`), the first
-part of **SuiteUI** (`UIPathIndex`, `UIBuilder`, `MeowcowWindow`) and the **main menu** additions
-(`Menus/MainMenu`). Everything else is design only.
+part of **SuiteUI** (`UIPathIndex`, `UIBuilder`, `MeowcowWindow`, `WindowTab`, `WindowPage`), the first part
+of **SuiteSettings** (Host and Personal settings, the Meowcow Settings menu) and the **main menu**
+additions. Everything else is design only.
 Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Findings.md`.
 
 ---
@@ -56,6 +57,9 @@ Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Fi
 - **Tie-ins ask for other modules at wake or session start and keep the result**, never per frame.
 - **`GameInput.exitListeners` is cleared on `onPreSceneChange`.** Core's windows re-register their Back
   handling each session.
+- **Anything cloned from vanilla must have its state reset, not just its scripts removed.** A clone
+  copies the source's *current* state: after vanilla Settings had been opened, its first tab was "on"
+  and unclickable, and every tab cloned from it started unclickable.
 - **Build menu UI on scene Initialized, never Loaded.** Exiting a game loads the Menu scene three
   times; on Loaded, two of those copies are about to be destroyed (§4).
 - **`IntroManager` subscribes to `CharacterCreator.OnComplete` and never unsubscribes.** Any later
@@ -272,7 +276,7 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 |---|---|---|
 | `UIPathIndex` | The only place that knows where vanilla UI lives (paths, and finding Home, the Settings screen, the Import button). | Built (main menu and window paths) |
 | `UIBuilder` | The only way mods create UI: list buttons, text labels, buttons (look kept, scripts stripped), click handlers, layout helpers, debug hierarchy dump. | Built (what the main menu and window need) |
-| `MeowcowWindow` | The shared window: left tabs, scroll pages, Back at bottom-left, draggable, gamepad navigation. | Built (no subtabs yet) |
+| `MeowcowWindow` | The shared window: left tabs, subtabs, scroll pages of rows, Back at bottom-left, draggable, gamepad navigation. | Built |
 | `UITemplateRegistry` | Captured vanilla templates: inactive, persistent, listeners stripped. | When a piece is needed outside its own scene |
 | `UIStyle` | Semantic style tokens (`button.primary`, `tab.selected`, `text.error`, ...). | With Themes |
 | Live elements | Named handles to live UI (`mainmenu.header`, `mainmenu.lobby`, ...) for Themes. | With Themes |
@@ -311,12 +315,28 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 - **Layout:** 1100×700 capped to the screen; title bar 70 (drag handle), footer 50, tabs 170 wide in a
   vertical list level with the content's top, LB/RB centred above the first tab, pages padded 10.
   Pattern scaled to cover. `[SOURCE]` pre-rebuild window frame.
-- **Tabs:** `AddTab(label)` returns the page's scroll content. Vanilla's `UITab` cycles by direction,
-  so the strip is set to vertical (`reverseCycleDirection` so RB moves down). The window selects the
-  tab strip on open (vanilla's `SettingsScreen.OnEnable` did this).
-- **Back:** a clone of the save slots' `Import` button, scripts stripped, one shared static handler
-  closing `MenuScreen.Current`. No style source (in-game): no button; Escape still works.
-- **Corner prompt** (`BottomLeftMenuPivot`) hidden while open, via the `MonoState`'s top-sibling events.
+- **Tabs:** `AddTab(label)` returns a `WindowTab`. Vanilla's `UITab` cycles by direction, so the strip
+  is set to vertical (`reverseCycleDirection` so RB moves down). The window selects the tab strip on
+  open (vanilla's `SettingsScreen.OnEnable` did this).
+- **Subtabs:** `WindowTab.AddPage(label)` returns a `WindowPage`. With two or more pages, a horizontal
+  strip (a copy of vanilla's tab strip taken before the main one turns vertical) runs along the top
+  and cycles on **LT/RT** (vanilla's `Secondary` tab input), so LB/RB keep switching tabs.
+- **Pages** are clones of a whole vanilla Settings page (`UIContentPanel` + scroll view), each added to
+  the window's `UIScreen`: up/down moves between rows, the page scrolls to the selected row, and hidden
+  pages are skipped. Dropdown item lists also have a panel and scroll view, so they're skipped by name.
+- **Rows** (`AddToggle`, `AddSlider`, `AddChoice`, `AddText`) are clones of vanilla's rows, keeping
+  vanilla's generic controls (`UIToggle`, `UISlider`, `TMP_Dropdown`), which do the work, gamepad
+  included, and returning handles to update the shown value. Configured while hidden, so vanilla's
+  `Awake` runs once on the finished row. `SuiteUI` knows nothing of settings: rows are generic.
+- **Scripts are stripped by allow-list** (`UIBuilder.StripScripts`): graphics, Unity controls and layout,
+  vanilla's generic controls, gamepad panels and sounds stay; anything else goes, including scripts
+  we've never seen and EventTriggers.
+- **Back:** a clone of the save slots' `Import` button (140×40), scripts stripped, one shared static
+  handler closing `MenuScreen.Current`. No style source (in-game): no button; Escape still works.
+- **Back borrows vanilla's corner prompt** (`BottomLeftMenuPivot`) while the window is open, in place of
+  its text, so it always shows the right key or button (Esc, B, Circle...) and follows rebinding with
+  no device logic of ours. Returned exactly as it was on close, and by `CoreLifecycle` before any scene
+  change as a guard. Not showing: the button keeps its text.
 - **Dragging** by Unity pointer events on the title; kept on screen; position remembered for the run
   (saved with SuiteSettings later). **Double-click recentres**, with our own detection: Unity counts
   releasing a drag as a click when one object handles both, so `clickCount` misfired.
@@ -332,12 +352,35 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 ## 8. SuiteSettings (Meowcow Settings)
 
 - Named **Meowcow Settings**, matching vanilla's Settings.
-- **Declared in code:** key, type, default, limits, label, description, subtab, scope, and
-  optionally separate solo/co-op values. Core builds the menu and JSON from the declarations.
-  `[SOURCE]` LilithsEngine schema-driven editor.
-- **Read once when a module wakes; written only by Core** when the player saves.
-- Hand edits only with the game closed; bad values are corrected, logged and written back.
-- Debug settings stay in MelonPreferences.
+- **Declared in code**, in `OnInitializeMelon`, beside `SuiteModules.Register`:
+  ```csharp
+  var general = MeowcowSettings.For(this).Subtab("General");
+  Enabled = general.Toggle("enabled", "Enabled", true);
+  Price   = general.Number("price", "Price", 100, min: 0, max: 1000, step: 10);
+  ```
+  Key, label, default, limits, description and subtab. Core builds the menu and JSON from the
+  declarations. `[SOURCE]` LilithsEngine schema-driven editor.
+- **Named `MeowcowSettings`**, not `SuiteSettings`: a class named like its folder clashes with the
+  namespace inside Core (`SuiteSettings.For` resolves to the namespace). It also matches the menu.
+- **Types built:** on/off (`ToggleSetting`), number with min/max/step and whole numbers
+  (`NumberSetting`), choice (`ChoiceSetting`). Text, colour and keybinds come when needed.
+- **Live values:** each setting has `Value` (read any time; free) and a `Changed` event, each handler
+  isolated. **Loaded when declared, at launch**, since a module may read a value at any time.
+  `[PERFORMANCE]` one small file read per module at launch.
+- **Changes apply the moment they're made**, like vanilla's Settings. The file is written **half a
+  second after the last change**, and at once when the menu closes and at each menu load: a slider
+  drag or a held stick is one write. Only written if the contents changed; atomic (temp file + move).
+- **The file is keyed by setting, not subtab** (`{ "enabled": { "Value", "Default", "Description",
+  ...limits } }`), so moving a setting between subtabs keeps the player's value.
+- **Validation:** bad values are corrected, logged and written back; numbers clamped (NaN rejected);
+  choices matched case-insensitively and stored in their listed spelling. An unreadable file is kept
+  as `settings.json.broken` before defaults are written.
+- **The menu:** one tab per module (Core first, "No settings yet" when empty), one page per subtab,
+  one row per setting, bound both ways (a value changed in code updates its row; rows of a closed
+  window unhook themselves). Tab labels drop the "Meowcow" prefix and space the words.
+- Built so far: Host and Personal scopes (neither syncs), so scopes aren't declared yet. Client-needed
+  sync and solo/co-op values come with co-op and play mode.
+- Hand edits only with the game closed. Debug settings stay in MelonPreferences.
 
 ### Scopes
 | Scope | Meaning | Sync |
