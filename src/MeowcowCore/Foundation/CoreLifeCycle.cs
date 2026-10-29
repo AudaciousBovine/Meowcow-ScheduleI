@@ -168,6 +168,9 @@ public static class CoreLifecycle
     {
         try
         {
+            // [CHANGED] Before anything else: a window must never be torn down holding vanilla's prompt.
+            MeowcowCore.SuiteUI.MeowcowWindow.ReturnBorrowedPrompt();
+
             // Also fires going into a game and at the start of a client join; only a running session ends.
             if (!IsInSession) return;
             EndSession(null);
