@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 
-namespace MeowcowCore.SuiteSettings;
+namespace MeowcowCore.SuiteSettingsManager;
 
 /// <summary>An on/off setting. Shown with vanilla's On/Off control.</summary>
 /// <remarks>[CHANGED] New.</remarks>

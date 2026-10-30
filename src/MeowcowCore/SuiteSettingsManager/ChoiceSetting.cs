@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
 
-namespace MeowcowCore.SuiteSettings;
+namespace MeowcowCore.SuiteSettingsManager;
 
 /// <summary>One of a fixed list of choices. Shown with vanilla's dropdown.</summary>
 /// <remarks>

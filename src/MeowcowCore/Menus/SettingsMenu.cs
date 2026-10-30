@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using MeowcowCore.Foundation;
 using Il2CppTMPro;
+using MeowcowCore.SuiteSettingsManager;
 using MeowcowCore.SuiteUI;
 using UnityEngine;
 using UIContentPanel = Il2CppScheduleOne.UIContentPanel;
@@ -30,6 +31,9 @@ internal static class SettingsMenu
     /// <summary>The vanilla page itself, moved whole as a subtab (for pages run by a script on the page).</summary>
     private const string WholePage = "#page";
 
+    /// <summary>As a page name: a Core setting (by key) rather than a vanilla row, shown with its own row.</summary>
+    private const string CoreSetting = "@core";
+
     /// <summary>
     /// Where each vanilla row goes: vanilla page, row name, our tab, our subtab (null for a tab with one
     /// page), and an optional new label. Tabs and subtabs appear in the order they first appear here.
@@ -41,7 +45,10 @@ internal static class SettingsMenu
     /// </remarks>
     private static readonly Placement[] Layout =
     {
-        // General
+        // General. [CHANGED] Core's switches for vanilla behaviour come first (see SuiteSettings/VanillaSkips).
+        new(CoreSetting, SuiteSettings.VanillaSkips.SkipDisclaimerKey, "General", "Main"),
+        new(CoreSetting, SuiteSettings.VanillaSkips.AlwaysSkipTutorialKey, "General", "Main"),
+        new(CoreSetting, SuiteSettings.VanillaSkips.AlwaysSkipIntroKey, "General", "Main"),
         new("Display", "PauseOnLoseFocus", "General", "Main"),
         new("Other", "AutoBackupSaves", "General", "Main"),
         // [CHANGED] The current save's settings (in a save only): vanilla's Game page, moved whole, since a
@@ -121,6 +128,12 @@ internal static class SettingsMenu
         {
             try
             {
+                if (placement.Page == CoreSetting)
+                {
+                    AddCoreSetting(window, tabs, pages, placement);
+                    continue;
+                }
+
                 Transform? pageRoot = window.VanillaPages.Find(placement.Page);
                 if (pageRoot == null)
                 {
@@ -297,6 +310,19 @@ internal static class SettingsMenu
             tabs.Add(placement.Tab, tab);
         }
         return tab;
+    }
+
+    /// <summary>A Core setting's row, bound both ways, like Meowcow Settings' rows.</summary>
+    private static void AddCoreSetting(MeowcowWindow window, Dictionary<string, WindowTab> tabs,
+        Dictionary<string, WindowPage> pages, Placement placement)
+    {
+        Setting? setting = MeowcowSettings.Core?.Find(placement.Row);
+        if (setting == null)
+        {
+            Log.Warning($"Core setting '{placement.Row}' not found; not shown");
+            return;
+        }
+        SettingRows.Add(PageFor(window, tabs, pages, placement), setting);
     }
 
     /// <summary>A whole vanilla page becomes a subtab: its panel (with its scripts) moves into the tab.</summary>

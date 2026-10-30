@@ -8,7 +8,7 @@ using MelonLoader;
 using MeowcowCore.Foundation;
 using UnityEngine;
 
-namespace MeowcowCore.SuiteSettings;
+namespace MeowcowCore.SuiteSettingsManager;
 
 /// <summary>
 /// One module's settings file (<c>UserData/Meowcow/&lt;ModuleId&gt;/settings.json</c>): reading it once,

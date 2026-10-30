@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 
-namespace MeowcowCore.SuiteSettings;
+namespace MeowcowCore.SuiteSettingsManager;
 
 /// <summary>
 /// One declared setting, without its value type. Core uses this to load, save and list settings;
@@ -32,12 +32,33 @@ public abstract class Setting
     public string Label { get; }
     public string Description { get; }
 
+    /// <summary>
+    /// Shown in vanilla's Settings instead of Meowcow Settings: Core's switches for vanilla behaviour
+    /// (e.g. Skip Disclaimer). Meowcow Settings is kept for the mods' own settings.
+    /// </summary>
+    /// <remarks>[CHANGED] New (Settings rework slice 3). Core only: see <see cref="SettingExtensions"/>.</remarks>
+    public bool VanillaSettingsOnly { get; internal set; }
+
     /// <summary>Sets the value from the file without notifying. Null means missing: the default is used.</summary>
     /// <param name="problem">Why the stored value was rejected or changed, for the log; null if it was fine.</param>
     internal abstract void Load(JsonNode? value, out string? problem);
 
     /// <summary>This setting's entry in the file: value, default, description and any limits.</summary>
     internal abstract JsonObject ToJson();
+}
+
+/// <summary>Declaration helpers for Core's own settings.</summary>
+internal static class SettingExtensions
+{
+    /// <summary>
+    /// Marks a Core setting as shown in vanilla's Settings (placed by its layout table) instead of Meowcow
+    /// Settings. Internal: a module's setting placed nowhere would be invisible.
+    /// </summary>
+    internal static TSetting ShownInVanillaSettings<TSetting>(this TSetting setting) where TSetting : Setting
+    {
+        setting.VanillaSettingsOnly = true;
+        return setting;
+    }
 }
 
 /// <summary>

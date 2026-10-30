@@ -28,7 +28,7 @@ namespace MeowcowCore.SuiteUI;
 /// [CHANGED] Slice 2c: 1100×700 frame, tabs level with the content, LB/RB centred above the first tab,
 /// Back button (from the template registry, with its own live key prompt), dragging by the title
 /// (double-click recentres).
-/// [CHANGED] SuiteSettings slice 1: tabs hold pages (<see cref="WindowTab"/>, with subtabs) and pages hold
+/// [CHANGED] SuiteSettingsManager slice 1: tabs hold pages (<see cref="WindowTab"/>, with subtabs) and pages hold
 /// rows (<see cref="WindowPage"/>), all cloned from vanilla's Settings pages and rows.
 /// Everything is event-driven: nothing of ours runs per frame.
 /// How the clone stays safe: it's made inside an inactive parent, so no vanilla code runs on it until
@@ -60,7 +60,7 @@ public sealed class MeowcowWindow
     private static readonly Vector2 MinimumSize = new(400f, 300f);
 
     // Where each window was last dragged, by object name. For this run only: saving it between runs
-    // needs SuiteSettings.
+    // needs SuiteSettingsManager.
     private static readonly Dictionary<string, Vector2> RememberedPositions = new();
 
     private static readonly MeowcowLogger Log = CoreMod.Log.Tagged("Window");
@@ -601,7 +601,7 @@ public sealed class MeowcowWindow
     /// A vanilla setting row, moved out, stripped of its setting script (allow-list) and switched off, to
     /// clone rows from. Null if there's no such row.
     /// </summary>
-    /// <remarks>[CHANGED] New for SuiteSettings' rows.</remarks>
+    /// <remarks>[CHANGED] New for SuiteSettingsManager' rows.</remarks>
     private static GameObject? TakeRowTemplate(MenuScreen screen, RectTransform content, Transform root, GameObject? row, string name)
     {
         if (row == null) return null;

@@ -4,7 +4,7 @@ Status: **agreed design.** Supersedes `MeowcowCore-DesignPlan.md`.
 Built and tested in-game: **Foundation** (`MeowcowLogger`, `CorePathIndex`, `CoreLifecycle`, `CoreMod`),
 the first part of **ModuleApi** (`IMeowcowModule`, `WakeTrigger`, `SessionInfo`, `SuiteModules`), the first
 part of **SuiteUI** (`UIPathIndex`, `UIBuilder`, `MeowcowWindow`, `WindowTab`, `WindowPage`), the first part
-of **SuiteSettings** (Host and Personal settings, the Meowcow Settings menu), the **main menu**
+of **SuiteSettingsManager** (Host and Personal settings, the Meowcow Settings menu), the **main menu**
 additions, slices 1–2 of the **vanilla Settings rework** (§9), the **template registry** and
 **`InputPrompts`** (§7). Everything else is design only.
 Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Findings.md`.
@@ -33,6 +33,8 @@ Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Fi
 
 ### Working rules
 - **Discuss, decide, then write.** Nothing is written until explicitly approved; one small piece at a time.
+- **Ask before creating any new file or folder**, with the reasoning. Prefer extending an existing file
+  whose purpose fits (the intro skip went into `VanillaSkips`, not its own class).
 - **Build when needed.** No system ahead of a real use.
 - **Zero cost until needed.** Modules do nothing until woken; no per-frame work without a reason.
 - **Nothing outside the game is supported while it runs.** JSON is hand-edited only with the game
@@ -66,6 +68,10 @@ Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Fi
   are moved deliberately and permanently, never put back: not borrowing.)
 - **Prefer clones and vanilla's own pieces over Harmony patches.** A Back prompt that needed a patch became
   two vanilla pieces side by side, each doing what vanilla made it for.
+- **`OnSceneWasLoaded` arrives before the scene's first frame is drawn; `OnSceneWasInitialized` after.**
+  Anything that must act before the player sees it (Skip Disclaimer) uses the first.
+- **Vanilla's black overlay always fades in**, even when opened instantly. For an instant cover, Core
+  shows its own black canvas above everything, and removes it once vanilla's overlay is fully up.
 - **A switched-off canvas has no size.** In a save, the pause menu's canvas is off until the game is
   paused: anything measured then is zero. Build or measure UI only once its canvas is on (the in-game
   Settings is built on its first open; windows re-fit on every open).
@@ -97,15 +103,16 @@ MeowcowCore/
   ModuleApi/              IMeowcowModule, WakeTrigger, SessionInfo, SuiteModules
   SuiteUI/                UIPathIndex, UITemplateRegistry, UIStyle, UIBuilder, MeowcowWindow
   Menus/                  how vanilla menus are changed: MainMenu, later SaveMenu, SettingsMenu
-  SuiteSettings/          setting declarations, store, scopes, lobby sync, keybind registry
-  SuiteSaveManagement/    SuiteSaveManager, playthroughs, snapshots, new game, import
+  SuiteSettingsManager/   the settings system: declarations, store, scopes, lobby sync, keybind registry
+  SuiteSettings/          Core's own settings and what they do: VanillaSkips, later the input split
+  SuiteSaveManager/       the save system: playthroughs, snapshots, new game, import
   Patches/                Harmony patches (*Patch)
 ```
 - `Suite` prefix marks systems that parallel a vanilla one, to avoid confusion.
 - Namespaces follow folders. Folders are created only when their first file is written.
 - **`Menus/` holds the screens; the systems hold the logic.** "How does this menu look and behave" is in
   `Menus/` (e.g. the save menu's screens); "what does it do with data" is in the system (e.g.
-  `SuiteSaveManagement` keeps playthroughs and file work). `SuiteUI` is the toolkit both use.
+  `SuiteSaveManager` keeps playthroughs and file work). `SuiteUI` is the toolkit both use.
 - `src/MeowcowTestModule/`: dev-only module that logs every call and can fail on purpose (waking,
   retries, isolation). Never shipped; deleted once Mirror runs on the new Core.
 
@@ -355,7 +362,7 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
   (the main menu's `BottomLeftMenuPivot`, or the pause menu's `InputPrompt (Back)`) is **hidden** while
   the window is open, and shown again on close if it was showing.
 - **Dragging** by Unity pointer events on the title; kept on screen; position remembered for the run
-  (saved with SuiteSettings later). **Double-click recentres**, with our own detection: Unity counts
+  (saved with SuiteSettingsManager later). **Double-click recentres**, with our own detection: Unity counts
   releasing a drag as a click when one object handles both, so `clickCount` misfired.
 - **Tab styling:** no gap between the tab column and the content panel. The selected left tab's highlight
   is vanilla's tab shape (rounded top, flat bottom) turned a quarter left, in the content panel's colour,
@@ -407,7 +414,11 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 
 ---
 
-## 8. SuiteSettings (Meowcow Settings)
+## 8. SuiteSettingsManager (Meowcow Settings)
+
+- **Folders:** `SuiteSettingsManager` is the settings *system* every module uses; `SuiteSettings` holds
+  **Core's own settings and their effects** (e.g. `VanillaSkips`), built with it, like any module would.
+  Matches `SuiteSaveManager` for the save system.
 
 - Named **Meowcow Settings**, matching vanilla's Settings.
 - **Declared in code**, in `OnInitializeMelon`, beside `SuiteModules.Register`:
@@ -418,8 +429,8 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
   ```
   Key, label, default, limits, description and subtab. Core builds the menu and JSON from the
   declarations. `[SOURCE]` LilithsEngine schema-driven editor.
-- **Named `MeowcowSettings`**, not `SuiteSettings`: a class named like its folder clashes with the
-  namespace inside Core (`SuiteSettings.For` resolves to the namespace). It also matches the menu.
+- **Named `MeowcowSettings`**, not `SuiteSettingsManager`: a class named like its folder clashes with the
+  namespace inside Core (`SuiteSettingsManager.For` resolves to the namespace). It also matches the menu.
 - **Types built:** on/off (`ToggleSetting`), number with min/max/step and whole numbers
   (`NumberSetting`), choice (`ChoiceSetting`). Text, colour and keybinds come when needed.
 - **Live values:** each setting has `Value` (read any time; free) and a `Changed` event, each handler
@@ -436,6 +447,10 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 - **The menu:** one tab per module (Core first, "No settings yet" when empty), one page per subtab,
   one row per setting, bound both ways (a value changed in code updates its row; rows of a closed
   window unhook themselves). Tab labels drop the "Meowcow" prefix and space the words.
+- **Shown in vanilla's Settings only** (`.ShownInVanillaSettings()`, internal to Core): Core's switches
+  for vanilla behaviour live in vanilla's Settings, placed by its layout table (`@core` rows, bound both
+  ways via `Menus/SettingRows`), and aren't repeated in Meowcow Settings, which is kept for the mods'
+  own settings.
 - Built so far: Host and Personal scopes (neither syncs), so scopes aren't declared yet. Client-needed
   sync and solo/co-op values come with co-op and play mode.
 - Hand edits only with the game closed. Debug settings stay in MelonPreferences.
@@ -464,13 +479,14 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
 1. **Built:** the new layout with vanilla's own rows (main menu).
 2. **Built:** in-game (pause menu), with **General › Current Game**.
-3. New Core settings and the keyboard/gamepad split.
+3. New Core settings (**built:** the vanilla skips), the keyboard/gamepad split, and a description panel
+   with info icons.
 4. The keybind rework, with two bindings per action.
 
 ### Layout
 | Tab | Subtab | Rows |
 |---|---|---|
-| **General** | Main | Skip Intro*, Skip Disclaimer*, Always Skip Tutorial* (hides the tutorial toggle, defaulting it off), Pause on focus lost, Auto Backup Saves, Seed Mixing default*, Console default* |
+| **General** | Main | Skip Disclaimer*, Always Skip Tutorial*, Always Skip New Game Intro*, Pause on focus lost, Auto Backup Saves |
 | | Current Game (in a save only) | that save's Seeded Mixing, Console, View Commands |
 | | Misc | Export Player.log, Export Player-prev.log |
 | **Gameplay** | Interface | Interface Scale, Units, Gamepad Pointer Sensitivity |
@@ -481,6 +497,38 @@ Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
 | | Gamepad | Restore Default Bindings, Sprint Mode*, Sneak Mode*, Bindings |
 
 \* new (slices 3–4). "Camera Sensitivity" keeps "Camera": it isn't the menu cursor's.
+
+### The vanilla skips (`SuiteSettings/VanillaSkips`) — built
+Each uses vanilla's own flow; nothing is patched.
+- **Skip Disclaimer:** as the menu scene loads (`OnSceneWasLoaded`, before the first frame), the disclaimer's
+  text is switched off and its wait set to zero, so vanilla's own fade invokes `OnClose` and fades the
+  black screen out: a short fade into the menu, with no text and no jitter. Vanilla skips it itself after
+  the first menu of a launch (`Disclaimer.Shown`).
+- **Always Skip Tutorial:** the New Game screen's tutorial toggle (vanilla's `SkipIntroToggle`, read only
+  when the save is created) is set on and its row's contents hidden (`SetupScreen.Start` forces the
+  container itself on), at each menu load and when the setting changes.
+- **Always Skip New Game Intro**, and **holding vanilla's skip skips the whole intro** (not one segment):
+  the intro is one animation with an event per segment. Core fast-forwards it one segment per frame (so
+  each event fires), then to the end; vanilla carries on to the character creator, `MarkIntroCompleted`,
+  `onIntroDone` and the save. An instant black screen of Core's own goes up the frame before vanilla's hold
+  completes (read from its hold timer), and comes down once vanilla opens the character creator.
+- **Skip Splash Screen was dropped:** the TVGS logo is Unity's own splash, which ends before MelonLoader
+  starts any mod (`Menu` is the first scene).
+- Seed Mixing and Console defaults moved to playthrough creation (Save Manager, §10).
+- `[PERFORMANCE]` a few writes when the menu loads; one check per frame only while a new game's intro is
+  starting or playing.
+
+### Planned additions (from the Settings rework discussion)
+- **Description panel** (slice 3): a fixed panel on the right of each page shows the description of the
+  hovered info icon (mouse) or the selected row (gamepad/keyboard). Info icons, cloned from vanilla's,
+  sit beside every option with a description; Auto Backup's note moves into the panel.
+- **General › Commands** (slice 5), between Current Game and Misc, in both menus, replacing View Commands:
+  the command list rebuilt as labels (from the game's command data if simple, else a hand-kept table),
+  with **pinned commands** as buttons at the top, enabled only when **host or solo and console on**,
+  console counting as off outside a session.
+- **Play mode (§6):** Current Game shown only to host or solo, instead of vanilla's Blocker.
+- **Save Manager (§10):** Seeded Mixing and Console become playthrough settings (set at creation or in
+  playthrough settings, not changeable mid-game), retiring Current Game.
 - **Keyboard and gamepad fully decoupled:** Sprint Mode, Sneak Mode and Invert Y each get a keyboard and a
   gamepad value; Core applies the matching one to vanilla when the input device changes (slice 3).
   Sneak Mode (hold/toggle for crouching) needs Core to add the toggle behaviour vanilla lacks.
@@ -559,7 +607,7 @@ Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
 
 ---
 
-## 10. SuiteSaveManagement
+## 10. SuiteSaveManager
 
 ### Layout
 ```
@@ -730,7 +778,7 @@ replaces vanilla's routine:
 - Skip logo and skip disclaimer (when enabled).
 - Adds Meowcow Settings after Settings and a pink Meowcow Suite tag just after the version text under
   the logo. **Built**, in `Menus/MainMenu`, one frame after the Menu phase; each addition falls back
-  separately. The button opens the Meowcow Settings window (placeholder tabs until SuiteSettings).
+  separately. The button opens the Meowcow Settings window (placeholder tabs until SuiteSettingsManager).
 - Renames vanilla Continue to **Load Game**; adds a new **Continue** (internally `ContinueLastSave`).
 - Order: Continue, Load Game, New Game, Settings, Meowcow Settings, Credits, Quit.
 - Lobby label click toggles Solo/Co-op intent.

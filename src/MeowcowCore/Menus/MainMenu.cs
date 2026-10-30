@@ -54,6 +54,7 @@ public static class MainMenu
         try
         {
             UITemplateRegistry.CaptureMissing();
+            SuiteSettings.VanillaSkips.ApplyTutorial(); // [CHANGED] Always Skip Tutorial on the New Game screen
             SettingsMenu.Setup();
         }
         catch (Exception e)

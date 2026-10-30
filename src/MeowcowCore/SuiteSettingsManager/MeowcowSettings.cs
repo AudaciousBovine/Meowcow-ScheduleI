@@ -4,7 +4,7 @@ using MelonLoader;
 using MeowcowCore.Foundation;
 using MeowcowCore.ModuleApi;
 
-namespace MeowcowCore.SuiteSettings;
+namespace MeowcowCore.SuiteSettingsManager;
 
 /// <summary>
 /// Where modules declare their settings for Meowcow Settings. In <c>OnInitializeMelon</c>:
@@ -16,8 +16,8 @@ namespace MeowcowCore.SuiteSettings;
 /// <c>Changed</c>.
 /// </summary>
 /// <remarks>
-/// [CHANGED] New (design §8). Named MeowcowSettings rather than SuiteSettings: a class with its folder's
-/// name clashes with the namespace inside MeowcowCore (e.g. <c>SuiteSettings.For</c> would resolve to the
+/// [CHANGED] New (design §8). Named MeowcowSettings rather than SuiteSettingsManager: a class with its folder's
+/// name clashes with the namespace inside MeowcowCore (e.g. <c>SuiteSettingsManager.For</c> would resolve to the
 /// namespace). It also matches the menu's name.
 /// </remarks>
 public static class MeowcowSettings
@@ -29,6 +29,9 @@ public static class MeowcowSettings
 
     /// <summary>Core's own settings (Core isn't a module, so it has its own way in).</summary>
     internal static ModuleSettings ForCore(MelonMod core) => Get(core, isCore: true);
+
+    /// <summary>Core's settings, once declared; null before. [CHANGED] New, for vanilla Settings' Core rows.</summary>
+    internal static ModuleSettings? Core => Modules.Find(m => m.IsCore);
 
     /// <summary>Every module with settings: Core first, then in the order they were first asked for.</summary>
     internal static IReadOnlyList<ModuleSettings> All

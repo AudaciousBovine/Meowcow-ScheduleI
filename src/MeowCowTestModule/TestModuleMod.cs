@@ -2,7 +2,7 @@ using System;
 using MelonLoader;
 using MeowcowCore.Foundation;
 using MeowcowCore.ModuleApi;
-using MeowcowCore.SuiteSettings;
+using MeowcowCore.SuiteSettingsManager;
 
 [assembly: MelonInfo(typeof(MeowcowTestModule.TestModuleMod), "MeowcowTestModule", "0.0.1", "Evelyna")]
 [assembly: MelonGame("TVGS", "Schedule I")]
@@ -47,7 +47,7 @@ public sealed class TestModuleMod : MelonMod, IMeowcowModule
     /// One setting of each type across two subtabs, to test Meowcow Settings: rows, subtabs, saving, and the
     /// Changed events (logged).
     /// </summary>
-    /// <remarks>[CHANGED] New for SuiteSettings slice 1.</remarks>
+    /// <remarks>[CHANGED] New for SuiteSettingsManager slice 1.</remarks>
     private void DeclareTestSettings()
     {
         ModuleSettings settings = MeowcowSettings.For(this);

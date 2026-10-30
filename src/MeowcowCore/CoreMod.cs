@@ -1,6 +1,6 @@
 using MelonLoader;
 using MeowcowCore.Foundation;
-using MeowcowCore.SuiteSettings;
+using MeowcowCore.SuiteSettingsManager;
 
 // [CHANGED] Rebuild: version 0.1.0 (pre-rebuild Core was 0.0.1), so logs and bug reports can tell them apart.
 // The name "MeowcowCore" is Core's module Id (design §5): it names its settings folder and log prefix,
@@ -35,8 +35,10 @@ public sealed class CoreMod : MelonMod
         Log = new MeowcowLogger(LoggerInstance);
         LoadDebugSetting();
 
-        // [CHANGED] Core's own tab in Meowcow Settings: always shown first, empty until Core declares settings.
-        MeowcowSettings.ForCore(this);
+        // [CHANGED] Core's settings: its tab in Meowcow Settings (shown first), plus its switches for vanilla
+        // behaviour, which live in vanilla's Settings.
+        ModuleSettings core = MeowcowSettings.ForCore(this);
+        SuiteSettings.VanillaSkips.Declare(core);
 
         // The version comes from MelonInfo above, so it's never declared twice.
         // [CHANGED] MelonLoader already prints "[MeowcowCore]" before every line, so the name isn't repeated.
@@ -50,6 +52,15 @@ public sealed class CoreMod : MelonMod
     /// </remarks>
     public override void OnSceneWasInitialized(int buildIndex, string sceneName) =>
         CoreLifecycle.OnSceneInitialized(sceneName);
+
+    /// <summary>
+    /// Arrives in the frame the scene loads, right after its objects' Awake and before anything is drawn
+    /// (OnSceneWasInitialized comes a frame later). Used by Skip Disclaimer, which must act before the
+    /// disclaimer's text is first drawn.
+    /// </summary>
+    /// <remarks>[CHANGED] New. [PERFORMANCE] One string comparison per scene load.</remarks>
+    public override void OnSceneWasLoaded(int buildIndex, string sceneName) =>
+        SuiteSettings.VanillaSkips.OnSceneLoaded(sceneName);
 
     /// <summary>
     /// Sets the suite-wide debug toggle from MelonPreferences (debug settings stay there, not in

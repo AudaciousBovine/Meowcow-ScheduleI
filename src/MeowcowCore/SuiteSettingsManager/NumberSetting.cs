@@ -1,7 +1,7 @@
 using System;
 using System.Text.Json.Nodes;
 
-namespace MeowcowCore.SuiteSettings;
+namespace MeowcowCore.SuiteSettingsManager;
 
 /// <summary>A number between limits. Shown with vanilla's slider.</summary>
 /// <remarks>

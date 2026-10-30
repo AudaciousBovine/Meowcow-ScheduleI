@@ -61,7 +61,7 @@ the one-frame setup delay, and the settings files (code-defined settings, valida
 
 ---
 
-## 4. Colour settings → SuiteSettings (§8), when a colour setting is needed
+## 4. Colour settings → SuiteSettingsManager (§8), when a colour setting is needed
 
 `[SOURCE]` `Settings/ColorHex.cs`
 

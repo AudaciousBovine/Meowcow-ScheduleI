@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using MeowcowCore.Foundation;
 
-namespace MeowcowCore.SuiteSettings;
+namespace MeowcowCore.SuiteSettingsManager;
 
 /// <summary>
 /// One module's settings, grouped into subtabs. Get it with <c>MeowcowSettings.For(this)</c>.
@@ -34,6 +34,9 @@ public sealed class ModuleSettings
 
     /// <summary>Every setting, in the order declared.</summary>
     internal IReadOnlyList<Setting> All => _all;
+
+    /// <summary>The setting with this key, or null. [CHANGED] New, for placing Core settings by key.</summary>
+    internal Setting? Find(string key) => _all.Find(s => string.Equals(s.Key, key, StringComparison.Ordinal));
 
     internal MeowcowLogger Log { get; }
     internal SettingsStore Store { get; }

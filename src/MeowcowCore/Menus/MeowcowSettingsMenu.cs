@@ -1,6 +1,7 @@
 using System;
+using System.Linq;
 using MeowcowCore.Foundation;
-using MeowcowCore.SuiteSettings;
+using MeowcowCore.SuiteSettingsManager;
 using MeowcowCore.SuiteUI;
 
 namespace MeowcowCore.Menus;
@@ -65,62 +66,18 @@ internal static class MeowcowSettingsMenu
         bool any = false;
         foreach (SettingsSubtab subtab in module.Subtabs)
         {
-            if (subtab.Settings.Count == 0) continue;
+            // [CHANGED] Settings shown in vanilla's Settings (Core's switches for vanilla behaviour) aren't
+            // repeated here: Meowcow Settings is for the mods' own settings.
+            if (!subtab.Settings.Any(st => !st.VanillaSettingsOnly)) continue;
             any = true;
             WindowPage page = tab.AddPage(subtab.Name);
-            foreach (Setting setting in subtab.Settings) AddRow(page, setting);
+            foreach (Setting setting in subtab.Settings)
+            {
+                if (!setting.VanillaSettingsOnly) SettingRows.Add(page, setting);
+            }
         }
 
         if (!any) tab.AddPage(EmptyPage).AddText(EmptyText);
     }
 
-    /// <summary>The row for one setting, bound both ways.</summary>
-    private static void AddRow(WindowPage page, Setting setting)
-    {
-        switch (setting)
-        {
-            case ToggleSetting toggle:
-            {
-                ToggleRow? row = page.AddToggle(toggle.Label, toggle.Value, v => toggle.Value = v);
-                if (row != null) Follow(toggle, () => row.IsAlive, row.SetValue);
-                break;
-            }
-            case NumberSetting number:
-            {
-                SliderRow? row = page.AddSlider(number.Label, number.Min, number.Max, number.Step,
-                    number.WholeNumbers, number.Value, v => number.Value = v);
-                if (row != null) Follow(number, () => row.IsAlive, row.SetValue);
-                break;
-            }
-            case ChoiceSetting choice:
-            {
-                ChoiceRow? row = page.AddChoice(choice.Label, choice.Choices, choice.Index,
-                    i => choice.Value = choice.Choices[i]);
-                if (row != null) Follow(choice, () => row.IsAlive, v => row.SetValue(choice.IndexOf(v)));
-                break;
-            }
-            default:
-                Log.Warning($"'{setting.Key}' has a type the menu can't show yet");
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Keeps a row showing the setting's value when it changes elsewhere. Once the row's window is gone,
-    /// the handler removes itself, so rebuilt menus don't pile up handlers.
-    /// </summary>
-    private static void Follow<T>(Setting<T> setting, Func<bool> rowIsAlive, Action<T> showValue) where T : notnull
-    {
-        Action<T>? handler = null;
-        handler = value =>
-        {
-            if (!rowIsAlive())
-            {
-                setting.Changed -= handler;
-                return;
-            }
-            showValue(value);
-        };
-        setting.Changed += handler;
-    }
 }
