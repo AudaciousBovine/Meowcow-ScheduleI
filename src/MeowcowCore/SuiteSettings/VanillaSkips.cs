@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppTMPro;
 using MeowcowCore.Foundation;
@@ -35,6 +36,28 @@ internal static class VanillaSkips
 
     /// <summary>How long a session waits for a new game's intro to start before deciding there isn't one.</summary>
     private const float IntroStartTimeout = 30f;
+
+    /// <summary>
+    /// [CHANGED] Once a text segment's text has fully faded in, the next segment starts after this long
+    /// (vanilla holds each text far longer).
+    /// </summary>
+    private const float IntroTextHold = 1.5f;
+
+    /// <summary>
+    /// [CHANGED] The same for the last text, a little longer: it doesn't fade out, it disappears when the
+    /// scene after it starts, so a short hold felt abrupt.
+    /// </summary>
+    private const float IntroLastTextHold = 2.5f;
+
+    /// <summary>
+    /// [CHANGED] The intro's text segments: the first three (texts "1", "2" and "3"). Segment 3 is the
+    /// cinematic and segment 4 the end, both played as vanilla made them. From the intro's events
+    /// (0.0, 8.1, 13.6, 21.6, 50.5, 57.0 s) and a diagnostic run.
+    /// </summary>
+    private const int IntroTextSegments = 3;
+
+    /// <summary>A text counts as fully faded in at this alpha.</summary>
+    private const float FullyShown = 0.99f;
 
     /// <summary>Vanilla's hold-to-skip time (IntroManager.SkipInputTime).</summary>
     private const float HoldToSkipTime = 0.5f;
@@ -176,6 +199,7 @@ internal static class VanillaSkips
             }
 
             // Watch the hold: black goes up the frame before vanilla's skip fires, so nothing after it shows.
+            var pacer = new IntroPacer(intro);
             bool started = false;
             bool wasReady = true;
             int blackSinceFrame = -1;
@@ -184,6 +208,8 @@ internal static class VanillaSkips
                 bool playing = intro.Anim.isPlaying;
                 if (playing) started = true;
                 else if (started) yield break; // the intro played out
+
+                if (playing) pacer.Update();
 
                 bool ready = intro.depressed;
                 if (playing && wasReady && !ready)
@@ -216,6 +242,98 @@ internal static class VanillaSkips
         {
             _watchingIntro = false;
             if (intro == null) HideBlackScreen(); // never left up if the scene goes away
+        }
+    }
+
+    /// <summary>
+    /// The intro's pace: in each text segment, once its text has fully faded in, the next segment starts
+    /// <see cref="IntroTextHold"/> later (<see cref="IntroLastTextHold"/> after the last text), with the same
+    /// jump vanilla's skip makes, so the segment's event fires. Fade-ins play at vanilla's speed; only the
+    /// long holds are cut. The cinematic after the texts, and the end, play as vanilla made them.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New (replaces doubling the speed, which rushed the fade-ins and barely shortened the hold).
+    /// A text's visibility is its own alpha times any canvas groups above it, so it works however vanilla
+    /// animates the fade. Texts already fully shown when a segment starts (the previous text, still fading
+    /// out) don't count, so one text can't skip two segments.
+    /// [PERFORMANCE] Only during the three text segments, and only until each text is fully in (a few
+    /// seconds each): an alpha check over the intro's texts (collected once; switched-off ones return at once).
+    /// </remarks>
+    private sealed class IntroPacer
+    {
+        private readonly IntroManager _intro;
+        private readonly TMP_Text[] _texts;
+        private readonly HashSet<IntPtr> _shownAtStart = new();
+        private int _segment = -1;
+        private float _fullSince = -1f;
+
+        public IntroPacer(IntroManager intro)
+        {
+            _intro = intro;
+            // [CHANGED] The skip prompt's own text ("Skipping...") isn't an intro text: it started a hold.
+            var texts = new List<TMP_Text>();
+            if (intro.Container != null)
+            {
+                foreach (TMP_Text text in intro.Container.GetComponentsInChildren<TMP_Text>(true))
+                {
+                    if (intro.SkipContainer == null || !text.transform.IsChildOf(intro.SkipContainer.transform)) texts.Add(text);
+                }
+            }
+            _texts = texts.ToArray();
+        }
+
+        public void Update()
+        {
+            AnimationClip? clip = _intro.Anim.clip;
+            if (clip == null) return;
+            var events = clip.events;
+            int lastText = Math.Min(IntroTextSegments, events.Length - 1) - 1;
+
+            if (_intro.CurrentStep != _segment)
+            {
+                // A new segment: note which texts are already showing (they belong to the one before).
+                _segment = _intro.CurrentStep;
+                _fullSince = -1f;
+                _shownAtStart.Clear();
+                foreach (TMP_Text text in _texts)
+                {
+                    if (text != null && Visibility(text) >= FullyShown) _shownAtStart.Add(text.Pointer);
+                }
+            }
+
+            if (_segment > lastText) return; // the cinematic and the end play as vanilla made them
+
+            if (_fullSince < 0f)
+            {
+                foreach (TMP_Text text in _texts)
+                {
+                    if (text == null || _shownAtStart.Contains(text.Pointer)) continue;
+                    if (Visibility(text) >= FullyShown)
+                    {
+                        _fullSince = Time.unscaledTime;
+                        break;
+                    }
+                }
+                return;
+            }
+
+            bool last = _segment == lastText;
+            if (Time.unscaledTime - _fullSince < (last ? IntroLastTextHold : IntroTextHold)) return;
+
+            // The next segment: after the last text, that's the cinematic, which plays as vanilla made it.
+            int next = _segment + 1;
+            _intro.Anim[clip.name].time = events[next].time;
+            _intro.CurrentStep = next;
+        }
+
+        /// <summary>How visible a text is: its own alpha times every canvas group above it.</summary>
+        private static float Visibility(TMP_Text text)
+        {
+            if (!text.gameObject.activeInHierarchy || !text.enabled) return 0f;
+            float alpha = text.alpha;
+            foreach (CanvasGroup group in text.GetComponentsInParent<CanvasGroup>())
+                alpha *= group.alpha;
+            return alpha;
         }
     }
 
