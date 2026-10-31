@@ -211,7 +211,9 @@ internal static class SettingsMenu
     private static bool PrepareScene()
     {
         _window = null; // the previous scene's window went with it
-        _redirectOpens = false;
+        // [CHANGED] Always on, as a safety net: if vanilla's screen ever opens other than through Core (a button
+        // that wasn't rerouted), it hands over to the improved menu when that's the chosen one.
+        _redirectOpens = true;
         _vanilla = UIPathIndex.FindSettingsScreen();
         if (_vanilla == null)
         {
@@ -245,6 +247,10 @@ internal static class SettingsMenu
 
         foreach (Button button in UObject.FindObjectsOfType<Button>(true))
         {
+            // [CHANGED] Not the screen's own buttons (its Back also targets the screen, to close it), and only a
+            // listener that opens it: the first version rerouted the wrong button, so the pause menu's Settings
+            // kept opening vanilla's screen.
+            if (button.transform.IsChildOf(screen.transform)) continue;
             Button.ButtonClickedEvent click = button.onClick;
             if (click == null) continue;
             for (int i = 0; i < click.GetPersistentEventCount(); i++)
@@ -253,24 +259,25 @@ internal static class SettingsMenu
                 if (target == null) continue;
                 IntPtr ptr = target.Pointer;
                 if (ptr != screenPtr && ptr != objectPtr && (statePtr == IntPtr.Zero || ptr != statePtr)) continue;
+                string method = click.GetPersistentMethodName(i) ?? "";
+                if (!method.StartsWith("Open", StringComparison.Ordinal) && method != "PushToDefaultParent") continue;
 
                 click.SetPersistentListenerState(i, UnityEngine.Events.UnityEventCallState.Off);
                 _openAction ??= UIBuilder.ToIl2Cpp<UnityEngine.Events.UnityAction>(new Action(() =>
                     UIBuilder.RunSafely(Open, "opening Settings")));
                 click.AddListener(_openAction);
-                Log.Debug($"Pause menu Settings button '{button.name}' now opens the chosen menu");
+                Log.Debug($"Pause menu Settings button '{button.name}' ({method}) now opens the chosen menu");
                 return;
             }
         }
 
-        // Not found: vanilla opens its screen some other way (from code). Redirect it as it opens.
-        _redirectOpens = true;
+        // Not found: vanilla opens its screen some other way (from code); the hand-over covers it.
         Log.Debug("No button opens the in-game Settings directly; vanilla's screen will hand over as it opens");
     }
 
     /// <summary>
     /// When true, vanilla's screen opening (with the improved menu chosen) closes again and opens the improved
-    /// window instead: the fallback when the button that opens it couldn't be found.
+    /// window instead. [CHANGED] Always on (a safety net behind the rerouted buttons), set per scene.
     /// </summary>
     private static bool _redirectOpens;
 

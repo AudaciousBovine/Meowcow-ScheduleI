@@ -232,7 +232,8 @@ internal static class VanillaSettingAdapters
         new()
         {
             Id = "input.sprintMode", Script = "SprintModeDropdown", Kind = AdapterKind.Choice,
-            Label = "Sprint Mode", Description = "How the sprint key works: press to toggle, or hold.",
+            Label = "Keyboard Sprint Mode", // [CHANGED] names the device, like the gamepad row
+            Description = "How the sprint key works: press to toggle, or hold.",
             Fields = new[] { "InputSettings.SprintMode" },
             // Vanilla's own options: the action modes in enum order, index = value.
             Choices = () => Enum.GetNames(typeof(InputSettings.EActionMode)),

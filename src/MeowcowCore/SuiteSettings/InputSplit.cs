@@ -57,15 +57,16 @@ internal static class InputSplit
     internal static void Declare(ModuleSettings core)
     {
         // Choices are vanilla's own action modes, so they match its Sprint Mode row exactly.
+        // [CHANGED] Labels name the device: the Keyboard and Gamepad pages looked identical at a glance.
         string[] modes = Enum.GetNames(typeof(InputSettings.EActionMode));
         string press = Array.Exists(modes, m => m == "Press") ? "Press" : modes[0];
 
         SettingsSubtab vanilla = core.Subtab("Vanilla");
-        _gamepadSprintMode = vanilla.Choice(GamepadSprintModeKey, "Sprint Mode", press, modes,
+        _gamepadSprintMode = vanilla.Choice(GamepadSprintModeKey, "Gamepad Sprint Mode", press, modes,
             "How the sprint button works on a gamepad: press to toggle, or hold.").ShownInVanillaSettings();
-        _keyboardSneakMode = vanilla.Choice(KeyboardSneakModeKey, "Sneak Mode", press, modes,
+        _keyboardSneakMode = vanilla.Choice(KeyboardSneakModeKey, "Keyboard Sneak Mode", press, modes,
             "How the crouch key works on keyboard: press to toggle, or hold.").ShownInVanillaSettings();
-        _gamepadSneakMode = vanilla.Choice(GamepadSneakModeKey, "Sneak Mode", press, modes,
+        _gamepadSneakMode = vanilla.Choice(GamepadSneakModeKey, "Gamepad Sneak Mode", press, modes,
             "How the crouch button works on a gamepad: press to toggle, or hold.").ShownInVanillaSettings();
         _gamepadInvertY = vanilla.Toggle(GamepadInvertYKey, "Gamepad Invert Y", false,
             "Inverts looking up and down on a gamepad.").ShownInVanillaSettings();
