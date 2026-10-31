@@ -24,21 +24,21 @@ internal static class SettingRows
         {
             case ToggleSetting toggle:
             {
-                ToggleRow? row = page.AddToggle(toggle.Label, toggle.Value, v => toggle.Value = v);
+                ToggleRow? row = page.AddToggle(toggle.Label, toggle.Value, v => toggle.Value = v, toggle.Description);
                 if (row != null) Follow(toggle, () => row.IsAlive, row.SetValue);
                 break;
             }
             case NumberSetting number:
             {
                 SliderRow? row = page.AddSlider(number.Label, number.Min, number.Max, number.Step,
-                    number.WholeNumbers, number.Value, v => number.Value = v);
+                    number.WholeNumbers, number.Value, v => number.Value = v, number.Description);
                 if (row != null) Follow(number, () => row.IsAlive, row.SetValue);
                 break;
             }
             case ChoiceSetting choice:
             {
                 ChoiceRow? row = page.AddChoice(choice.Label, choice.Choices, choice.Index,
-                    i => choice.Value = choice.Choices[i]);
+                    i => choice.Value = choice.Choices[i], choice.Description);
                 if (row != null) Follow(choice, () => row.IsAlive, v => row.SetValue(choice.IndexOf(v)));
                 break;
             }

@@ -158,6 +158,7 @@ public static class CoreLifecycle
             // [CHANGED] The in-game Settings, reorganised like the main menu's (plus Current Game).
             MeowcowCore.Menus.SettingsMenu.SetupInSave();
             MeowcowCore.SuiteSettings.VanillaSkips.OnSessionStart(); // [CHANGED] the new-game intro skips
+            MeowcowCore.SuiteSettings.InputSplit.OnSessionStart();   // [CHANGED] Sneak Mode: Hold
 
             // [CHANGED] Modules: wake Session modules, then give every awake module the session.
             SuiteModules.SessionStarted(new SessionInfo(isHost: InstanceFinder.IsServer));

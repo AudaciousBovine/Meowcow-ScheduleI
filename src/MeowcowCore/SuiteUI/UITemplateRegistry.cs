@@ -30,6 +30,15 @@ public static class UITemplateRegistry
 /// </summary>
     public const string BackButton = "button.back";
 
+    /// <summary>
+    /// [CHANGED] The info icon beside a row with a description: vanilla's own (the Hint's image), shown in
+    /// every scene.
+    /// </summary>
+    public const string InfoIcon = "icon.info";
+
+    private const float InfoIconSize = 18f;
+    private static readonly Color InfoIconColor = new(1f, 1f, 1f, 0.7f);
+
     private const string BackText = "Back";
     private const float BackSpacing = 8f;     // between the prompt and the text
     private const float BackPadding = 10f;    // inside the button, either side
@@ -44,6 +53,23 @@ public static class UITemplateRegistry
     /// </summary>
     internal static void CaptureMissing()
     {
+        if (!Pieces.ContainsKey(InfoIcon))
+        {
+            try
+            {
+                GameObject? icon = MakeInfoIcon();
+                if (icon != null)
+                {
+                    Pieces[InfoIcon] = icon;
+                    Log.Debug("Made the info icon");
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Error("Couldn't make the info icon; rows will have no icon (descriptions still show)", e);
+            }
+        }
+
         if (!Pieces.ContainsKey(BackButton))
         {
             try
@@ -183,6 +209,35 @@ public static class UITemplateRegistry
         }
 
         return button;
+    }
+
+    /// <summary>
+    /// The info icon: vanilla's <c>information</c> sprite (the one Seeded Mixing's hint uses), found among
+    /// the loaded images. It's loaded from the first main menu on.
+    /// </summary>
+    private static GameObject? MakeInfoIcon()
+    {
+        Sprite? sprite = null;
+        foreach (Sprite candidate in Resources.FindObjectsOfTypeAll<Sprite>())
+        {
+            if (candidate.name == UIPathIndex.InfoSprite) { sprite = candidate; break; }
+        }
+        if (sprite == null)
+        {
+            Log.Debug("Info icon image not loaded yet; will try again at the next menu");
+            return null;
+        }
+
+        var icon = new GameObject("InfoIcon");
+        RectTransform rect = icon.AddComponent<RectTransform>();
+        rect.SetParent(Holder(), false);
+        rect.sizeDelta = new Vector2(InfoIconSize, InfoIconSize);
+        Image image = icon.AddComponent<Image>();
+        image.sprite = sprite;
+        image.preserveAspect = true;
+        image.color = InfoIconColor;
+        image.raycastTarget = false; // hovering the row shows the description
+        return icon;
     }
 
     /// <summary>

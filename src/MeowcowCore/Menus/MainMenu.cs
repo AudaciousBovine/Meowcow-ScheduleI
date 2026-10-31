@@ -55,6 +55,7 @@ public static class MainMenu
         {
             UITemplateRegistry.CaptureMissing();
             SuiteSettings.VanillaSkips.ApplyTutorial(); // [CHANGED] Always Skip Tutorial on the New Game screen
+            SuiteSettings.InputSplit.Start();           // [CHANGED] keyboard/gamepad input values
             SettingsMenu.Setup();
         }
         catch (Exception e)

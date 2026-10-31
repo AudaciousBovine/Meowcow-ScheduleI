@@ -75,8 +75,9 @@ public sealed class WindowTab
     /// [CHANGED] New for General › Current Game: vanilla's Game page is driven by a script on the page itself,
     /// which only runs while the page is active, so the page moves rather than its rows.
     /// </remarks>
-    public WindowPage AddExistingPage(string label, GameObject pageRoot) =>
-        AddPageInternal(WindowPage.Adopt(_window, View.transform, label, pageRoot));
+    /// <param name="describe">[CHANGED] A row's description by its name, or null for none.</param>
+    public WindowPage AddExistingPage(string label, GameObject pageRoot, Func<string, string?>? describe = null) =>
+        AddPageInternal(WindowPage.Adopt(_window, View.transform, label, pageRoot, describe));
 
     private WindowPage AddPageInternal(WindowPage page)
     {
@@ -100,7 +101,12 @@ public sealed class WindowTab
         else ShowPage(index);
     }
 
-    internal void SetVisible(bool visible) => View.SetActive(visible);
+    internal void SetVisible(bool visible)
+    {
+        View.SetActive(visible);
+        // [CHANGED] Leaving a tab clears its description panels, so they don't show stale text on return.
+        if (!visible) foreach (Subtab subtab in _subtabs) subtab.Page.ClearDescription();
+    }
 
     /// <summary>Called when the tab is shown or the window opens: refreshes scrolling and the strip's focus.</summary>
     internal void OnShown()
@@ -114,6 +120,7 @@ public sealed class WindowTab
         for (int i = 0; i < _subtabs.Count; i++)
         {
             _subtabs[i].Page.Root.SetActive(i == index);
+            if (i != index) _subtabs[i].Page.ClearDescription(); // [CHANGED] no stale description on return
             if (_subtabs[i].Toggle != null)
             {
                 _subtabs[i].Toggle!.interactable = i != index;

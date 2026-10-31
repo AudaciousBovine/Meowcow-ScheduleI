@@ -110,6 +110,12 @@ public static class UIPathIndex
     /// <summary>The keyboard page's mouse-button row (two buttons with icons, side by side).</summary>
     public const string MouseInfoRow = "MouseInfo";
 
+    /// <summary>Under a row: vanilla's info icon with a hover tooltip (Seeded Mixing's), replaced by Core's.</summary>
+    public const string VanillaHint = "Hint";
+
+    /// <summary>Vanilla's info icon image (the Hint's sprite), loaded from the first main menu on.</summary>
+    public const string InfoSprite = "information";
+
     /// <summary>A choice row's dropdown.</summary>
     public const string RowDropdown = "Dropdown";
 

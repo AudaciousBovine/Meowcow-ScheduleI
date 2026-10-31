@@ -85,7 +85,9 @@ public sealed class WindowPage
     /// window again, and its rows are aligned. Hidden until its subtab shows it.
     /// </summary>
     /// <remarks>[CHANGED] New, for vanilla pages that must keep their own scripts (Current Game).</remarks>
-    internal static WindowPage Adopt(MeowcowWindow window, Transform parent, string label, GameObject root)
+    /// <param name="describe">[CHANGED] A row's description by its name, or null for none.</param>
+    internal static WindowPage Adopt(MeowcowWindow window, Transform parent, string label, GameObject root,
+        Func<string, string?>? describe = null)
     {
         root.transform.SetParent(parent, false);
         root.SetActive(false);
@@ -97,14 +99,20 @@ public sealed class WindowPage
 
         window.Screen.uiScreen?.AddPanel(panel); // detached with vanilla's other pages; back in
         var page = new WindowPage(window, label, root, panel, scroll, rows);
-        for (int i = 0; i < rows.childCount; i++) page.AlignRow(rows.GetChild(i));
+        for (int i = 0; i < rows.childCount; i++)
+        {
+            Transform row = rows.GetChild(i);
+            page.AttachDescription(row, null, describe?.Invoke(row.name));
+            page.AlignRow(row);
+        }
         return page;
     }
 
     // ---------- Rows ----------
 
     /// <summary>An on/off row. <paramref name="onChanged"/> runs when the player flips it.</summary>
-    public ToggleRow? AddToggle(string label, bool value, Action<bool> onChanged)
+    /// <param name="description">[CHANGED] Shown in the page's description panel; empty: no info icon, no panel.</param>
+    public ToggleRow? AddToggle(string label, bool value, Action<bool> onChanged, string description = "")
     {
         GameObject? row = NewRow(_window.Templates.ToggleRow, label, "on/off");
         if (row == null) return null;
@@ -119,6 +127,7 @@ public sealed class WindowPage
             new Action<bool>(v => UIBuilder.RunSafely(() => onChanged(v), $"'{label}' change")))));
 
         Register(toggle.selectable);
+        AttachDescription(row.transform, label, description);
         AlignRow(row.transform);
         row.SetActive(true);
         return new ToggleRow(toggle);
@@ -128,8 +137,9 @@ public sealed class WindowPage
     /// A slider row from <paramref name="min"/> to <paramref name="max"/>. <paramref name="step"/> is one
     /// gamepad left/right press. <paramref name="onChanged"/> runs while dragging and on each press.
     /// </summary>
+    /// <param name="description">[CHANGED] Shown in the page's description panel; empty: no info icon, no panel.</param>
     public SliderRow? AddSlider(string label, float min, float max, float step, bool wholeNumbers, float value,
-        Action<float> onChanged)
+        Action<float> onChanged, string description = "")
     {
         GameObject? row = NewRow(_window.Templates.SliderRow, label, "slider");
         if (row == null) return null;
@@ -151,13 +161,16 @@ public sealed class WindowPage
             new Action<float>(v => UIBuilder.RunSafely(() => onChanged(v), $"'{label}' change")))));
 
         Register(option.selectable);
+        AttachDescription(row.transform, label, description);
         AlignRow(row.transform);
         row.SetActive(true);
         return new SliderRow(slider, valueText);
     }
 
     /// <summary>A choice row (dropdown). <paramref name="onChanged"/> gets the chosen index.</summary>
-    public ChoiceRow? AddChoice(string label, IReadOnlyList<string> choices, int index, Action<int> onChanged)
+    /// <param name="description">[CHANGED] Shown in the page's description panel; empty: no info icon, no panel.</param>
+    public ChoiceRow? AddChoice(string label, IReadOnlyList<string> choices, int index, Action<int> onChanged,
+        string description = "")
     {
         GameObject? row = NewRow(_window.Templates.ChoiceRow, label, "choice");
         if (row == null) return null;
@@ -184,6 +197,7 @@ public sealed class WindowPage
             new Action<int>(i => UIBuilder.RunSafely(() => onChanged(i), $"'{label}' change")))));
 
         Register(dropdownObject!.GetComponent<UISelectable>());
+        AttachDescription(row.transform, label, description);
         AlignRow(row.transform);
         row.SetActive(true);
         return new ChoiceRow(dropdown);
@@ -201,10 +215,13 @@ public sealed class WindowPage
     /// scripts keep applying vanilla's settings.
     /// [PERFORMANCE] One reparent, and a pass over the given controls.
     /// </remarks>
-    public void AddExistingRow(Transform row, IReadOnlyList<UISelectable> gamepadControls, string? label = null)
+    /// <param name="description">[CHANGED] Shown in the page's description panel; null or empty: none.</param>
+    public void AddExistingRow(Transform row, IReadOnlyList<UISelectable> gamepadControls, string? label = null,
+        string? description = null)
     {
         row.SetParent(Rows, false);
         if (label != null) SetRowLabel(row, label);
+        AttachDescription(row, null, description);
         AlignRow(row);
 
         foreach (UISelectable control in gamepadControls)
@@ -254,6 +271,55 @@ public sealed class WindowPage
         layout.preferredHeight = TextHeight;
         layout.preferredWidth = TextWidth;
     }
+
+    // ---------- Descriptions ----------
+
+    private DescriptionPanel? _descriptionPanel;
+
+    /// <summary>
+    /// Gives a row its description: an info icon after its label (placed by the alignment, so call this
+    /// first), and the page's description panel shown while the row is selected or hovered. Vanilla's own
+    /// hint icon and any note under the label give way to them. Nothing happens for an empty description.
+    /// </summary>
+    /// <param name="title">The panel's title; null: the row's own label.</param>
+    /// <remarks>
+    /// [CHANGED] New. Uses the row's controls' own selection events (vanilla's UISelectable), so nothing
+    /// runs per frame; with a mouse, vanilla selects a row when it's hovered.
+    /// [PERFORMANCE] One icon and two listeners per control, once per row.
+    /// </remarks>
+    private void AttachDescription(Transform row, string? title, string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return;
+        TMP_Text? label = FindRowLabel(row);
+        if (label == null) return;
+        Transform holder = label.transform.parent ?? row;
+
+        // Vanilla's hint icon (Seeded Mixing's) and notes (Auto Backup's): the panel replaces them.
+        for (int i = 0; i < holder.childCount; i++)
+        {
+            Transform child = holder.GetChild(i);
+            if (child == label.transform) continue;
+            bool note = child.GetComponent<TMP_Text>() != null && child.GetComponentsInChildren<Selectable>(true).Length == 0;
+            if (child.name == UIPathIndex.VanillaHint || note) child.gameObject.SetActive(false);
+        }
+
+        UITemplateRegistry.Create(UITemplateRegistry.InfoIcon, holder, "InfoIcon");
+
+        _descriptionPanel ??= DescriptionPanel.Create(Root.transform, label);
+        DescriptionPanel panel = _descriptionPanel;
+        string shownTitle = title ?? label.text.Replace("\n", " ");
+        string text = description!;
+        foreach (UISelectable control in row.GetComponentsInChildren<UISelectable>(true))
+        {
+            control.OnSelected?.AddListener(_window.Keep(UIBuilder.ToIl2Cpp<UnityAction>(
+                new Action(() => UIBuilder.RunSafely(() => panel.Show(row, shownTitle, text), "description")))));
+            control.OnDeselected?.AddListener(_window.Keep(UIBuilder.ToIl2Cpp<UnityAction>(
+                new Action(() => UIBuilder.RunSafely(() => panel.Hide(row), "description")))));
+        }
+    }
+
+    /// <summary>Hides the description panel (the page was left). [CHANGED] New.</summary>
+    internal void ClearDescription() => _descriptionPanel?.Clear();
 
     // ---------- Two-column alignment ----------
 

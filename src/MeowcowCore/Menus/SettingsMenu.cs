@@ -49,8 +49,8 @@ internal static class SettingsMenu
         new(CoreSetting, SuiteSettings.VanillaSkips.SkipDisclaimerKey, "General", "Main"),
         new(CoreSetting, SuiteSettings.VanillaSkips.AlwaysSkipTutorialKey, "General", "Main"),
         new(CoreSetting, SuiteSettings.VanillaSkips.AlwaysSkipIntroKey, "General", "Main"),
-        new("Display", "PauseOnLoseFocus", "General", "Main"),
-        new("Other", "AutoBackupSaves", "General", "Main"),
+        new("Display", "PauseOnLoseFocus", "General", "Main", Description: "Pauses the game when its window loses focus, such as when you switch to another program."),
+        new("Other", "AutoBackupSaves", "General", "Main", Description: "When loading an existing save on a new version of the game, a backup is made first."),
         // [CHANGED] The current save's settings (in a save only): vanilla's Game page, moved whole, since a
         // script on the page runs its rows and shows its host-only Blocker.
         new("Game", WholePage, "General", "Current Game", InSaveOnly: true),
@@ -58,25 +58,26 @@ internal static class SettingsMenu
         new("Other", "Export Player Log (1)", "General", "Misc"),
 
         // Gameplay
-        new("Display", "InterfaceScaleSlider", "Gameplay", "Interface"),
-        new("Display", "Units", "Gameplay", "Interface"),
-        new("Gamepad", "PointerSensitivity", "Gameplay", "Interface"),
-        new("Display", "CameraBobbingSlider", "Gameplay", "Camera"),
-        new("Graphics", "FOV", "Gameplay", "Camera"),
-        new("Controls", "SettingsSlider", "Gameplay", "Camera", "Mouse Camera Sensitivity"),
-        new("Controls", "InvertYToggle", "Gameplay", "Camera", "Mouse Invert Y"),
-        new("Gamepad", "CameraSensitivity", "Gameplay", "Camera", "Gamepad Camera Sensitivity"),
+        new("Display", "InterfaceScaleSlider", "Gameplay", "Interface", Description: "The size of the game's interface."),
+        new("Display", "Units", "Gameplay", "Interface", Description: "Metric or imperial units, for weights and distances."),
+        new("Gamepad", "PointerSensitivity", "Gameplay", "Interface", Description: "How fast the on-screen pointer moves with a gamepad."),
+        new("Display", "CameraBobbingSlider", "Gameplay", "Camera", Description: "How much the camera bobs while you move."),
+        new("Graphics", "FOV", "Gameplay", "Camera", Description: "Field of view: how wide the camera sees."),
+        new("Controls", "SettingsSlider", "Gameplay", "Camera", "Mouse Camera Sensitivity", Description: "How fast the camera turns with the mouse."),
+        new("Controls", "InvertYToggle", "Gameplay", "Camera", "Mouse Invert Y", Description: "Inverts looking up and down with the mouse."),
+        new("Gamepad", "CameraSensitivity", "Gameplay", "Camera", "Gamepad Camera Sensitivity", Description: "How fast the camera turns with a gamepad."),
+        new(CoreSetting, SuiteSettings.InputSplit.GamepadInvertYKey, "Gameplay", "Camera"),
 
         // Graphics
         new("Display", "Resolution", "Graphics", null),
         new("Display", "Display", "Graphics", null),
         new("Display", "Display Mode", "Graphics", null),
-        new("Display", "VSync", "Graphics", null),
-        new("Display", "TargetFramerateSlider", "Graphics", null),
+        new("Display", "VSync", "Graphics", null, Description: "Matches frames to your monitor's refresh rate to prevent tearing."),
+        new("Display", "TargetFramerateSlider", "Graphics", null, Description: "The frame rate limit, when V-Sync is off."),
         new("Graphics", "QualityPopupSelector", "Graphics", null),
-        new("Graphics", "AntiAliasingPopupSelector", "Graphics", null),
-        new("Graphics", "SSAOToggle", "Graphics", null),
-        new("Graphics", "GodRaysToggle", "Graphics", null),
+        new("Graphics", "AntiAliasingPopupSelector", "Graphics", null, Description: "Smooths jagged edges."),
+        new("Graphics", "SSAOToggle", "Graphics", null, Description: "Soft shadows where surfaces meet. Costs some performance."),
+        new("Graphics", "GodRaysToggle", "Graphics", null, Description: "Visible shafts of sunlight. Costs some performance."),
         new("Display", "Apply", "Graphics", null), // appears after a display change; applies it
 
         // Audio
@@ -85,19 +86,34 @@ internal static class SettingsMenu
         // Keybinds (vanilla's binding sections, until the keybind rework). [CHANGED] The "Bindings" header
         // opens the bindings, after Sprint Mode; its Restore Default button moves to the top of the page
         // (see TouchUpKeybinds).
-        new("Controls", "SprintModePopupSelector", "Keybinds", "Mouse & Keyboard"),
+        new("Controls", "SprintModePopupSelector", "Keybinds", "Mouse & Keyboard", Description: "How the sprint key works: press to toggle, or hold."),
+        new(CoreSetting, SuiteSettings.InputSplit.KeyboardSneakModeKey, "Keybinds", "Mouse & Keyboard"),
         new("Controls", "BindingLabel", "Keybinds", "Mouse & Keyboard"),
         new("Controls", RestOfPage, "Keybinds", "Mouse & Keyboard"),
+        new(CoreSetting, SuiteSettings.InputSplit.GamepadSprintModeKey, "Keybinds", "Gamepad"),
+        new(CoreSetting, SuiteSettings.InputSplit.GamepadSneakModeKey, "Keybinds", "Gamepad"),
         new("Gamepad", "BindingLabel", "Keybinds", "Gamepad"),
         new("Gamepad", RestOfPage, "Keybinds", "Gamepad"),
+    };
+
+    /// <summary>
+    /// [CHANGED] Descriptions for the rows of whole pages (Current Game), by row name. Seeded Mixing's is
+    /// vanilla's own tooltip text.
+    /// </summary>
+    private static readonly Dictionary<string, string> WholePageDescriptions = new(StringComparer.Ordinal)
+    {
+        ["Seeded Mixing"] = "If enabled, the product mixing algorithm will be randomized using this save file's seed. " +
+                            "This will not affect your existing mixes.",
+        ["Console"] = "Enables the developer console in this save.",
     };
 
     /// <summary>Vanilla rows that aren't moved anywhere: the "Settings" headers above the moved settings.</summary>
     private static readonly HashSet<string> LeftBehind = new(StringComparer.Ordinal) { "SettingsLabel" };
 
     /// <param name="InSaveOnly">The vanilla page only exists in a save; its absence elsewhere is expected.</param>
+    /// <param name="Description">[CHANGED] Shown in the page's description panel (with an info icon).</param>
     private sealed record Placement(string Page, string Row, string Tab, string? Subtab, string? Label = null,
-        bool InSaveOnly = false);
+        bool InSaveOnly = false, string? Description = null);
 
     /// <summary>
     /// Reorganises this scene's Settings screen. Called once per menu load, before the player can open it.
@@ -150,7 +166,7 @@ internal static class SettingsMenu
                 WindowPage page = PageFor(window, tabs, pages, placement);
                 foreach (Transform row in RowsFor(pageRoot, placement, moved))
                 {
-                    page.AddExistingRow(row, gamepadControls, placement.Label);
+                    page.AddExistingRow(row, gamepadControls, placement.Label, placement.Description);
                     moved.Add(row.Pointer);
                     movedRows.Add((page, row));
                     count++;
@@ -338,7 +354,8 @@ internal static class SettingsMenu
 
         WindowTab tab = TabFor(window, tabs, placement);
         string subtab = placement.Subtab ?? placement.Tab;
-        pages[placement.Tab + "/" + subtab] = tab.AddExistingPage(subtab, panels[0].gameObject);
+        pages[placement.Tab + "/" + subtab] = tab.AddExistingPage(subtab, panels[0].gameObject,
+            rowName => WholePageDescriptions.TryGetValue(rowName, out string? d) ? d : null);
     }
 
     private static Il2CppSystem.Action? _firstOpen; // kept referenced (IL2CPP rule)

@@ -39,6 +39,7 @@ public sealed class CoreMod : MelonMod
         // behaviour, which live in vanilla's Settings.
         ModuleSettings core = MeowcowSettings.ForCore(this);
         SuiteSettings.VanillaSkips.Declare(core);
+        SuiteSettings.InputSplit.Declare(core);
 
         // The version comes from MelonInfo above, so it's never declared twice.
         // [CHANGED] MelonLoader already prints "[MeowcowCore]" before every line, so the name isn't repeated.
