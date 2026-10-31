@@ -36,7 +36,7 @@ public static class UITemplateRegistry
     /// </summary>
     public const string InfoIcon = "icon.info";
 
-    private const float InfoIconSize = 18f;
+    private const float InfoIconSize = 14f; // [CHANGED] was 18: read as too large beside the label
     private static readonly Color InfoIconColor = new(1f, 1f, 1f, 0.7f);
 
     private const string BackText = "Back";

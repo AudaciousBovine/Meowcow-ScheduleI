@@ -5,8 +5,9 @@ Built and tested in-game: **Foundation** (`MeowcowLogger`, `CorePathIndex`, `Cor
 the first part of **ModuleApi** (`IMeowcowModule`, `WakeTrigger`, `SessionInfo`, `SuiteModules`), the first
 part of **SuiteUI** (`UIPathIndex`, `UIBuilder`, `MeowcowWindow`, `WindowTab`, `WindowPage`), the first part
 of **SuiteSettingsManager** (Host and Personal settings, the Meowcow Settings menu), the **main menu**
-additions, slices 1–2 of the **vanilla Settings rework** (§9), the **template registry** and
-**`InputPrompts`** (§7). Everything else is design only.
+additions, slices 1–2 of the **vanilla Settings rework** (§9; being replaced by the adapter rebuild, see
+"Rebuilt with adapters"), the **template registry** and **`InputPrompts`** (§7). Everything else is design
+only.
 Findings from the pre-rebuild code that aren't built yet live in `MeowcowCore-Findings.md`.
 
 ---
@@ -476,12 +477,15 @@ Play mode isn't in `SessionInfo`; it's a live Core value (§6).
 
 ## 9. Vanilla Settings rework
 
-Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
-1. **Built:** the new layout with vanilla's own rows (main menu).
-2. **Built:** in-game (pause menu), with **General › Current Game**.
-3. New Core settings (**built:** the vanilla skips), the keyboard/gamepad split, and a description panel
-   with info icons.
-4. The keybind rework, with two bindings per action.
+Vanilla's Settings is **rebuilt into the suite's layout**. Slices 1–3 were built by moving vanilla's own rows
+into vanilla's real screen; that approach is **being replaced** by Core's own rows bound to vanilla's settings
+(see **Rebuilt with adapters** below, with its own slice order R1–R4). Kept from slices 1–3: the layout, the
+vanilla skips, the keyboard/gamepad split and the description panel.
+1. **Built (being replaced):** the new layout with vanilla's own rows (main menu).
+2. **Built (being replaced):** in-game (pause menu), with **General › Current Game**.
+3. New Core settings (**built:** the vanilla skips, the keyboard/gamepad split, the description panel with
+   info icons).
+4. The keybind rework, with two bindings per action (after R4).
 
 ### Layout
 | Tab | Subtab | Rows |
@@ -497,6 +501,97 @@ Vanilla's Settings is **rebuilt into the suite's layout**, in four slices:
 | | Gamepad | Restore Default Bindings, Sprint Mode*, Sneak Mode*, Bindings |
 
 \* new (slices 3–4). "Camera Sensitivity" keeps "Camera": it isn't the menu cursor's.
+
+### Rebuilt with adapters (decided; replaces the in-place reorganising)
+**Why.** Moving vanilla's rows into vanilla's real screen kept inheriting vanilla state Core doesn't control:
+the screen shares the main menu's `UIScreen` (the lobby panel stole gamepad focus), vanilla's navigation picks
+targets from hidden pages, moved and cloned controls carry runtime-only registrations
+(`addToPanelOnAwake`). Meowcow Settings, built from the same window code with Core's own rows, has none of
+these problems. So vanilla Settings is rebuilt the same way, and vanilla's own screen is left untouched.
+
+**The window.**
+- A Meowcow window cloned from vanilla's Settings screen, like Meowcow Settings. Vanilla's screen is no longer
+  changed, so the pristine copy (slice 1) is no longer needed: windows clone the real screen directly.
+- The same layout table (tab, subtab, order), now pointing at adapters instead of vanilla rows.
+- Rows are Core's own (`WindowPage.AddToggle/AddSlider/AddChoice`), so descriptions, info icons, hover and
+  gamepad navigation work exactly as in Meowcow Settings.
+
+**Adapters.** One entry per vanilla setting: label, row kind, the vanilla field it covers, how to read it, how
+to set it, and which vanilla event means "changed elsewhere". A row built from an adapter follows that event,
+the way `SettingRows` follows a Core setting's `Changed`.
+- Vanilla's pattern (`Settings`): each category is an object with `Apply…Settings` and `Write…Settings`.
+  Setting a value = change the field, apply, write (Core saves on change, like vanilla).
+
+  | Category | Apply | Save | Changed event |
+  |---|---|---|---|
+  | Graphics (class) | `ApplyGraphicsSettings` | `WriteGraphicsSettings` | `onQualitySettingsChanged` |
+  | Audio (class) | `ApplyAudioSettings` | `WriteAudioSettings` | — |
+  | Input (class) | `ApplyInputSettings` | `WriteInputSettings` | `onInputsApplied` |
+  | Gamepad (class) | `ApplyGamepadSettings` | `WriteGamepadSettings` | — |
+  | Other (class) | `ApplyOtherSettings` | `WriteOtherSettings` | — |
+  | Display (**struct**) | see below | on confirm | `onDisplaySettingsApplied` |
+
+- **`DisplaySettings` is a struct:** read the whole struct, change it, assign it back (setting a field
+  through the property changes a copy under IL2CPP).
+- Choice lists that depend on the machine (resolutions, displays) are read when the window is built
+  (`DisplaySettings.GetResolutions()`, `Screen.GetDisplayLayout`).
+- Not wrapped as Core `Setting`s: those are stored in Core's JSON; vanilla's values stay in PlayerPrefs.
+- File: proposed `SuiteSettings/VanillaSettingAdapters.cs` (data logic; the layout stays in
+  `Menus/SettingsMenu`). New file: asked before creating.
+- `[PERFORMANCE]` built once per window build (about 35 rows); a change is one apply and one write.
+  `ApplyInputSettings` reloads every binding override and toggles all input actions, so the mouse
+  sensitivity slider applies on release, not on every drag step.
+- `[SOURCE]` vanilla `Settings`, `VSyncToggle` (read `UnappliedDisplaySettings`, apply through
+  `SettingsScreen.ApplyDisplaySettings`).
+
+**Display settings and confirmation.**
+- Vanilla stages display changes in `UnappliedDisplaySettings`; `SettingsScreen.ApplyDisplaySettings(true)`
+  applies them, then opens `ConfirmDisplaySettings` (revert countdown) and only writes on confirm; `false`
+  applies and writes at once.
+- That dialog lives inside vanilla's (hidden) screen, so Core builds its **own confirm dialog** from its
+  window pieces: apply with `Settings.ApplyDisplaySettings(unapplied)`; Keep → `WriteDisplaySettings`;
+  Revert or timeout → apply the old struct and reset the unapplied one. Needs vanilla
+  `ConfirmDisplaySettings` (timings, wording) during R3.
+- Which display rows apply at once (V-Sync) and which wait for Apply (resolution, mode, display) is read from
+  their vanilla row scripts during R3.
+
+**Unmapped-setting detection.** Catches settings a game update adds.
+- **Row scan:** at each menu load, every row on vanilla's Settings pages must be in the adapter table, on the
+  "deliberately not shown" list (headers, the Apply button Core replaces), or on the "pending" list (key
+  bindings until slice 4). Anything else is unmapped.
+- **Field scan:** every field of vanilla's settings objects (`DisplaySettings`, `GraphicsSettings`, …) must be
+  covered by an adapter or listed (e.g. `BindingOverrides`). Catches a new setting even if its row is named
+  oddly.
+- Unmapped settings are logged as an **error** naming each one, and a **yellow line** shows in the window's
+  bottom bar, between Back and the vanilla toggle: "1 vanilla setting isn't shown here — use Show Vanilla
+  Settings". No line when everything is mapped.
+- `[PERFORMANCE]` one pass over about 60 rows and a few dozen fields per menu load.
+
+**Show Vanilla Settings Menu.**
+- A toggle at the bottom right of the window switches to vanilla's own, untouched screen; vanilla's screen gets
+  a matching small button back ("Show Meowcow Settings Menu").
+- **Remembered:** a personal Core setting. The Settings buttons (main menu and pause menu) open whichever
+  menu was last chosen.
+- Extends the existing rule: if Core can't build the window, vanilla's screen opens anyway.
+
+**What stays vanilla for now.**
+- **Key bindings:** Core builds its own keybind rows in slice 4 (see "How vanilla input works"). Until then
+  the Keybinds tab holds Sprint Mode and Sneak Mode, plus a line pointing to Show Vanilla Settings for
+  bindings.
+- **Current Game:** its `GameSettingsWindow` script lives on the page. To keep vanilla's screen untouched, the
+  page is cloned (its script runs on the clone) if that script doesn't depend on `SettingsScreen`; otherwise
+  its settings get adapters too. Decided in R4 from vanilla `GameSettingsWindow`.
+
+**Slice order.**
+- **R1. The window:** the cloned window and its layout, the Settings buttons pointed at the chosen menu, the
+  vanilla toggle and its way back, the warning line's place. The in-place reorganising, pristine copy and
+  moved-row code are removed once R1 works.
+- **R2. Simple adapters:** Other, Audio, Gamepad, Input (not bindings), Core's own rows (skips, keyboard/
+  gamepad split), and both detection scans.
+- **R3. Graphics and Display:** Graphics adapters; Display adapters with the struct handling, the Apply
+  button and Core's confirm dialog.
+- **R4. In-game:** the pause menu's window and Current Game.
+- Then **slice 4** (Core's keybind rows); the Keybinds pointer line and the "pending" list go.
 
 ### The vanilla skips (`SuiteSettings/VanillaSkips`) — built
 Each uses vanilla's own flow; nothing is patched.
@@ -534,7 +629,7 @@ Each uses vanilla's own flow; nothing is patched.
   Sneak Mode (hold/toggle for crouching) needs Core to add the toggle behaviour vanilla lacks.
 - Controls is renamed **Keybinds**: camera settings moved to Gameplay.
 
-### How it's built (slice 1)
+### How it's built (slice 1; being replaced, see "Rebuilt with adapters")
 - **Vanilla's real screen is reorganised in place** (`MeowcowWindow.AdoptSettings`), not cloned:
   - rows apply their change with `GetComponentInParent<SettingsScreen>()`, so they must stay under it;
   - **rows are moved, not copied**: each keeps its own script, which keeps applying vanilla's setting;
@@ -552,7 +647,7 @@ Each uses vanilla's own flow; nothing is patched.
 - A **pristine copy** of vanilla's Settings screen is kept per scene; Meowcow Settings is cloned from it.
 - Done once per menu load, before the player can open it. `[PERFORMANCE]` about 40 reparents.
 
-### In a save (slice 2)
+### In a save (slice 2; being replaced, see "Rebuilt with adapters")
 - `SettingsScreen_Ingame` (under the pause menu) has **the same pages and row names**, so the same layout
   table is used, plus the Game page.
 - **Built on its first open**, not at session start: the pause menu's canvas is off until the game is

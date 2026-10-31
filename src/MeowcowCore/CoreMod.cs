@@ -35,6 +35,9 @@ public sealed class CoreMod : MelonMod
         Log = new MeowcowLogger(LoggerInstance);
         LoadDebugSetting();
 
+        // [CHANGED] Core's own IL2CPP types are registered before anything can build UI with them.
+        RegisterIl2CppTypes();
+
         // [CHANGED] Core's settings: its tab in Meowcow Settings (shown first), plus its switches for vanilla
         // behaviour, which live in vanilla's Settings.
         ModuleSettings core = MeowcowSettings.ForCore(this);
@@ -62,6 +65,23 @@ public sealed class CoreMod : MelonMod
     /// <remarks>[CHANGED] New. [PERFORMANCE] One string comparison per scene load.</remarks>
     public override void OnSceneWasLoaded(int buildIndex, string sceneName) =>
         SuiteSettings.VanillaSkips.OnSceneLoaded(sceneName);
+
+    /// <summary>
+    /// Registers Core's injected IL2CPP types. A failure is logged, not thrown: the feature that needs the type
+    /// goes without it (rows then have no mouse hover; descriptions still show with a gamepad).
+    /// </summary>
+    /// <remarks>[CHANGED] New, for <see cref="SuiteUI.RowHover"/>. [PERFORMANCE] Once at launch.</remarks>
+    private static void RegisterIl2CppTypes()
+    {
+        try
+        {
+            SuiteUI.RowHover.Register();
+        }
+        catch (System.Exception e)
+        {
+            Log.Error("Couldn't register RowHover; menu descriptions won't follow the mouse", e);
+        }
+    }
 
     /// <summary>
     /// Sets the suite-wide debug toggle from MelonPreferences (debug settings stay there, not in

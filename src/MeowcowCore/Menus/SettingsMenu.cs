@@ -5,7 +5,9 @@ using Il2CppTMPro;
 using MeowcowCore.SuiteSettingsManager;
 using MeowcowCore.SuiteUI;
 using UnityEngine;
+using PanelChangeEvent = Il2CppScheduleOne.PanelChangeEvent;
 using UIContentPanel = Il2CppScheduleOne.UIContentPanel;
+using UIPanel = Il2CppScheduleOne.UIPanel;
 using UISelectable = Il2CppScheduleOne.UISelectable;
 
 namespace MeowcowCore.Menus;
@@ -180,6 +182,7 @@ internal static class SettingsMenu
 
         TouchUpKeybinds(movedRows);
         Log.Debug($"Settings reorganised: {count} rows moved");
+        WatchPanelChanges(window); // [TEMPORARY]
         return window;
     }
 
@@ -251,6 +254,27 @@ internal static class SettingsMenu
         button.pivot = new Vector2(button.pivot.x, 0.5f);
         button.anchoredPosition = new Vector2(button.anchoredPosition.x, -(ButtonSpaceAbove - ButtonSpaceBelow) / 2f);
         WindowPage.PlaceAtLabelColumnStart(row.transform, button);
+    }
+
+    /// <summary>
+    /// [TEMPORARY] Logs every gamepad panel change in the Settings window, to find where selection goes when it
+    /// disappears at the ends of lists. Remove once the edge fix is in.
+    /// </summary>
+    private static void WatchPanelChanges(MeowcowWindow window)
+    {
+        var uiScreen = window.Screen.uiScreen;
+        if (uiScreen == null) return;
+        uiScreen.SubscribeToPanelChange(window.Keep(UIBuilder.ToIl2Cpp<PanelChangeEvent>(
+            new Action<UIPanel, UIPanel>((from, to) => UIBuilder.RunSafely(() =>
+                Log.Debug($"Gamepad panel: {Describe(from)} -> {Describe(to)}"), "panel watch")))));
+    }
+
+    private static string Describe(UIPanel? panel)
+    {
+        if (panel == null) return "none";
+        Transform? parent = panel.transform.parent;
+        return $"'{panel.name}' ({panel.GetIl2CppType().Name}, under '{(parent != null ? parent.name : "-")}', " +
+               $"{panel.selectables.Count} controls, visible {panel.IsPanelVisible()})";
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using MeowcowCore.Foundation;
 using UnityEngine;
 using UnityEngine.UI;
+using UIPanel = Il2CppScheduleOne.UIPanel;
 using UISelectable = Il2CppScheduleOne.UISelectable;
 using UITab = Il2CppScheduleOne.UITab;
 using UObject = UnityEngine.Object;
@@ -17,6 +18,11 @@ namespace MeowcowCore.SuiteUI;
 /// [CHANGED] New. Subtabs cycle with vanilla's second tab input (<c>Secondary</c>), so LB/RB keep switching
 /// tabs. The strip is a clone of vanilla's horizontal tab strip, taken before the main strip turned vertical.
 /// [SOURCE] Vanilla <c>UITab</c> (input types, direction-based cycling).
+/// [CHANGED] Only the page showing is a gamepad panel of the window's screen; hidden pages are taken off it.
+/// Vanilla's content panels pick navigation targets from every panel on the screen
+/// (<c>UIContentPanel.Navigate</c> → <c>CustomUIUtils.GetSelectables</c>), so at the end of a list the
+/// gamepad jumped into a hidden page (log: Page Main → Page Misc, visible False) and selection vanished.
+/// [SOURCE] Vanilla <c>UIScreen.AddPanel</c>/<c>RemovePanel</c>/<c>SetCurrentSelectedPanel</c>.
 /// </remarks>
 public sealed class WindowTab
 {
@@ -104,8 +110,12 @@ public sealed class WindowTab
     internal void SetVisible(bool visible)
     {
         View.SetActive(visible);
-        // [CHANGED] Leaving a tab clears its description panels, so they don't show stale text on return.
-        if (!visible) foreach (Subtab subtab in _subtabs) subtab.Page.ClearDescription();
+        if (visible) return; // OnShown registers the showing page
+        foreach (Subtab subtab in _subtabs)
+        {
+            subtab.Page.ClearDescription(); // [CHANGED] no stale description on return
+            Unregister(subtab.Page); // [CHANGED] a hidden tab's pages leave the screen
+        }
     }
 
     /// <summary>Called when the tab is shown or the window opens: refreshes scrolling and the strip's focus.</summary>
@@ -117,10 +127,21 @@ public sealed class WindowTab
     private void ShowPage(int index)
     {
         SelectedPage = index;
+
+        // [CHANGED] The new page is shown and registered before the others leave, so when the screen loses
+        // its selected panel (a page being hidden) its fallback lands on this one.
+        WindowPage shown = _subtabs[index].Page;
+        shown.Root.SetActive(true);
+        _window.Screen.uiScreen?.AddPanel(shown.Panel);
+
         for (int i = 0; i < _subtabs.Count; i++)
         {
-            _subtabs[i].Page.Root.SetActive(i == index);
-            if (i != index) _subtabs[i].Page.ClearDescription(); // [CHANGED] no stale description on return
+            if (i != index)
+            {
+                _subtabs[i].Page.Root.SetActive(false);
+                _subtabs[i].Page.ClearDescription(); // [CHANGED] no stale description on return
+                Unregister(_subtabs[i].Page);
+            }
             if (_subtabs[i].Toggle != null)
             {
                 _subtabs[i].Toggle!.interactable = i != index;
@@ -128,8 +149,9 @@ public sealed class WindowTab
             }
         }
 
-        WindowPage page = _subtabs[index].Page;
+        WindowPage page = shown;
         if (page.Scroll != null) _window.Screen.uiScreen?.ChangeActiveScrollRect(page.Scroll);
+        FocusIfLost(page);
 
         // The strip needs a selected subtab before its input cycles (as with the main strip).
         if (_strip != null && _subtabs[index].Selectable != null)
@@ -141,6 +163,40 @@ public sealed class WindowTab
             catch (Exception e)
             {
                 Log.Warning($"Couldn't select the subtab strip; subtabs may not cycle by gamepad: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>Takes a page off the window's screen (no-op if it isn't on it). [CHANGED] New.</summary>
+    /// <remarks>
+    /// If it was the selected panel, vanilla's RemovePanel falls back to the best visible panel itself.
+    /// [PERFORMANCE] A list search and removal; only on page and tab switches.
+    /// </remarks>
+    private void Unregister(WindowPage page)
+    {
+        var screen = _window.Screen.uiScreen;
+        if (screen != null && page.Panel != null) screen.RemovePanel(page.Panel);
+    }
+
+    /// <summary>
+    /// Selects the shown page's panel if the screen has nothing usable selected (e.g. the previous tab's page
+    /// was hidden before this one was registered). Anything else validly selected is left alone.
+    /// </summary>
+    /// <remarks>[CHANGED] New. Only while the screen is selected (open and taking input).</remarks>
+    private void FocusIfLost(WindowPage page)
+    {
+        var screen = _window.Screen.uiScreen;
+        if (screen == null || !screen.IsSelected) return;
+        UIPanel? current = screen.CurrentSelectedPanel;
+        if (current == null || !current.IsPanelVisible() || !screen.panels.Contains(current))
+        {
+            try
+            {
+                screen.SetCurrentSelectedPanel(page.Panel, null, true, false);
+            }
+            catch (Exception e)
+            {
+                Log.Warning($"Couldn't select page '{page.Label}' for gamepad: {e.Message}");
             }
         }
     }

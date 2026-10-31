@@ -33,8 +33,8 @@ public sealed class WindowPage
     // page's left edge, the same for every kind of row. Tune here.
     private const float LabelIndent = 10f;        // row's left edge → label column ([CHANGED] was 20)
     private const float LabelColumnWidth = 160f;  // [CHANGED] was 200, then 260; longer labels wrap
-    private const float ColumnGap = 24f;          // label column → controls
-    private const float IconSpacing = 4f;         // [CHANGED] label's end → a small icon beside it (in the gap)
+    private const float ColumnGap = 28f;          // label column → controls ([CHANGED] was 24, to fit the info icon)
+    private const float IconSpacing = 6f;         // [CHANGED] label's end → a small icon beside it (was 4: touched the text)
     private const float MaxIconSize = 40f;        // [CHANGED] larger graphics are backgrounds, not icons
     private const float TextWidth = 600f;
 
@@ -64,7 +64,10 @@ public sealed class WindowPage
     /// <summary>Where rows go: the scroll view's content (a vertical layout that grows with its rows).</summary>
     internal RectTransform Rows { get; }
 
-    /// <summary>A new, hidden page under <paramref name="parent"/>, registered as a gamepad panel.</summary>
+    /// <summary>
+    /// A new, hidden page under <paramref name="parent"/>. [CHANGED] Not registered with the window's screen
+    /// here: its tab registers it while it's the page showing (see <see cref="WindowTab"/>).
+    /// </summary>
     internal static WindowPage Create(MeowcowWindow window, Transform parent, string label)
     {
         GameObject root = UObject.Instantiate(window.Templates.Page, parent); // inactive, like its template
@@ -75,8 +78,6 @@ public sealed class WindowPage
         ScrollRect? scroll = scrolls.Length > 0 ? scrolls[0] : null;
         RectTransform rows = scroll != null && scroll.content != null ? scroll.content : root.GetComponent<RectTransform>();
 
-        // A gamepad panel of the window's screen: the screen picks the visible page when it opens.
-        window.Screen.uiScreen?.AddPanel(panel);
         return new WindowPage(window, label, root, panel, scroll, rows);
     }
 
@@ -97,7 +98,7 @@ public sealed class WindowPage
         ScrollRect? scroll = scrolls.Length > 0 ? scrolls[0] : null;
         RectTransform rows = scroll != null && scroll.content != null ? scroll.content : root.GetComponent<RectTransform>();
 
-        window.Screen.uiScreen?.AddPanel(panel); // detached with vanilla's other pages; back in
+        // [CHANGED] Registered by its tab while showing, like every page (it was detached with vanilla's pages).
         var page = new WindowPage(window, label, root, panel, scroll, rows);
         for (int i = 0; i < rows.childCount; i++)
         {
@@ -196,7 +197,16 @@ public sealed class WindowPage
         dropdown.onValueChanged.AddListener(_window.Keep(UIBuilder.ToIl2Cpp<UnityAction<int>>(
             new Action<int>(i => UIBuilder.RunSafely(() => onChanged(i), $"'{label}' change")))));
 
-        Register(dropdownObject!.GetComponent<UISelectable>());
+        // [CHANGED] The row's own selectables, not Dropdown.GetComponent<UISelectable>(): on the cloned choice
+        // row that came back null, so Core's choice rows (Sneak Mode, gamepad Sprint Mode) were never on the
+        // gamepad list and navigation skipped them.
+        int registered = 0;
+        foreach (UISelectable selectable in OwnSelectables(row.transform))
+        {
+            Register(selectable);
+            registered++;
+        }
+        if (registered == 0) Log.Warning($"Choice row '{label}' has no gamepad control; gamepad will skip it");
         AttachDescription(row.transform, label, description);
         AlignRow(row.transform);
         row.SetActive(true);
@@ -224,10 +234,53 @@ public sealed class WindowPage
         AttachDescription(row, null, description);
         AlignRow(row);
 
+        int registered = 0;
         foreach (UISelectable control in gamepadControls)
         {
-            if (control != null && control.transform.IsChildOf(row)) Panel.AddSelectable(control);
+            if (control != null && control.transform.IsChildOf(row))
+            {
+                Panel.AddSelectable(control);
+                registered++;
+            }
         }
+
+        // [CHANGED] A row none of whose controls were on a vanilla list registers its own instead. Selectables
+        // can also join a panel at runtime (addToPanelOnAwake), and the vanilla Gamepad page has never been
+        // awake when Settings is reorganised, so its rows (Pointer Sensitivity, Gamepad Camera Sensitivity)
+        // were unreachable by gamepad. Rows that did have listed controls keep exactly vanilla's reach.
+        if (registered == 0)
+        {
+            foreach (UISelectable control in OwnSelectables(row))
+            {
+                Panel.AddSelectable(control);
+                registered++;
+            }
+            if (registered > 0) Log.Debug($"Row '{row.name}': registered its own {registered} gamepad control(s)");
+        }
+    }
+
+    /// <summary>
+    /// A row's own gamepad controls: every UISelectable in it, except those in a dropdown's hidden item list
+    /// (that list is its own panel when open).
+    /// </summary>
+    /// <remarks>[CHANGED] New. [PERFORMANCE] One component search per row, once per window build.</remarks>
+    private static List<UISelectable> OwnSelectables(Transform row)
+    {
+        var own = new List<UISelectable>();
+        foreach (UISelectable selectable in row.GetComponentsInChildren<UISelectable>(true))
+        {
+            if (selectable != null && !IsInDropdownList(selectable.transform, row)) own.Add(selectable);
+        }
+        return own;
+    }
+
+    private static bool IsInDropdownList(Transform t, Transform row)
+    {
+        for (Transform? current = t; current != null && current != row; current = current.parent)
+        {
+            if (current.name == UIPathIndex.DropdownTemplate) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -283,9 +336,11 @@ public sealed class WindowPage
     /// </summary>
     /// <param name="title">The panel's title; null: the row's own label.</param>
     /// <remarks>
-    /// [CHANGED] New. Uses the row's controls' own selection events (vanilla's UISelectable), so nothing
-    /// runs per frame; with a mouse, vanilla selects a row when it's hovered.
-    /// [PERFORMANCE] One icon and two listeners per control, once per row.
+    /// [CHANGED] New. [CHANGED] Mouse: the whole row's hover (<see cref="RowHover"/>), since vanilla only
+    /// treats hovering the control itself as selecting it. Gamepad: the controls' own selection events
+    /// (vanilla's UISelectable), each keyed by its control. The panel decides which applies by device.
+    /// [PERFORMANCE] One icon, one hover component (plus an undrawn hit area if the row has no graphic) and two
+    /// listeners per control, once per row. Nothing runs per frame.
     /// </remarks>
     private void AttachDescription(Transform row, string? title, string? description)
     {
@@ -307,14 +362,22 @@ public sealed class WindowPage
 
         _descriptionPanel ??= DescriptionPanel.Create(Root.transform, label);
         DescriptionPanel panel = _descriptionPanel;
-        string shownTitle = title ?? label.text.Replace("\n", " ");
-        string text = description!;
-        foreach (UISelectable control in row.GetComponentsInChildren<UISelectable>(true))
+        // [CHANGED] One entry per row, shared by its hover and its controls (the panel compares entries to
+        // skip rewriting text that's already showing).
+        var entry = new DescriptionPanel.Entry(title ?? label.text.Replace("\n", " "), description!);
+
+        // [CHANGED] Mouse: the whole row. RowHover runs its handlers safely itself.
+        RowHover.Attach(row.gameObject, () => panel.Hover(row, entry), () => panel.Unhover(row));
+
+        // Gamepad: each control's selection, keyed by that control (not the row).
+        foreach (UISelectable control in OwnSelectables(row)) // [CHANGED] skips the dropdown's item list
         {
+            UISelectable owner = control; // the same wrapper for Select, Deselect and Track
+            panel.Track(owner, control.gameObject, entry);
             control.OnSelected?.AddListener(_window.Keep(UIBuilder.ToIl2Cpp<UnityAction>(
-                new Action(() => UIBuilder.RunSafely(() => panel.Show(row, shownTitle, text), "description")))));
+                new Action(() => UIBuilder.RunSafely(() => panel.Select(owner, entry), "description")))));
             control.OnDeselected?.AddListener(_window.Keep(UIBuilder.ToIl2Cpp<UnityAction>(
-                new Action(() => UIBuilder.RunSafely(() => panel.Hide(row), "description")))));
+                new Action(() => UIBuilder.RunSafely(() => panel.Deselect(owner), "description")))));
         }
     }
 
