@@ -101,15 +101,6 @@ public static class UIPathIndex
     /// <summary>Under an on/off control (at any depth): its circle.</summary>
     public const string ToggleCircle = "BG Circle";
 
-    /// <summary>A Keybinds page's section header ("Bindings"), holding the Restore Default button.</summary>
-    public const string BindingHeader = "BindingLabel";
-
-    /// <summary>Under the bindings header: the Restore Default button.</summary>
-    public const string RestoreDefaultButton = "RestoreDefault";
-
-    /// <summary>The keyboard page's mouse-button row (two buttons with icons, side by side).</summary>
-    public const string MouseInfoRow = "MouseInfo";
-
     /// <summary>Under a row: vanilla's info icon with a hover tooltip (Seeded Mixing's), replaced by Core's.</summary>
     public const string VanillaHint = "Hint";
 
@@ -152,26 +143,19 @@ public static class UIPathIndex
     /// <summary>
     /// Finds vanilla's Settings screen (the main menu's, or the pause menu's in-game). Null if missing.
     /// </summary>
-    /// <remarks>[PERFORMANCE] One object search; called once per window build, not per frame.</remarks>
     /// <remarks>
-    /// [CHANGED] Skips Core's untouched copy of the screen (see <see cref="PristineSettingsName"/>), which is
-    /// also a SettingsScreen.
+    /// [PERFORMANCE] One object search; called once per menu load or window build, not per frame.
+    /// [CHANGED] Skips windows cloned from it (they're named with Core's prefix); was: skipping Core's
+    /// pristine copy, removed with the adapter rebuild. Clones aren't SettingsScreens today, so this is a guard.
     /// </remarks>
     public static SettingsScreen? FindSettingsScreen()
     {
         foreach (SettingsScreen screen in UObject.FindObjectsOfType<SettingsScreen>(true))
         {
-            if (screen.name != PristineSettingsName) return screen;
+            if (!screen.name.StartsWith(MeowcowWindow.CoreAdditionPrefix, System.StringComparison.Ordinal)) return screen;
         }
         return null;
     }
-
-    /// <summary>
-    /// Core's hidden, untouched copy of vanilla's Settings screen, taken before Core reorganises the real
-    /// one. New windows (Meowcow Settings) are cloned from it, since the real one no longer looks vanilla.
-    /// </summary>
-    /// <remarks>[CHANGED] New for the vanilla Settings rework.</remarks>
-    public const string PristineSettingsName = "MeowcowPristineSettings";
 
     /// <summary>
     /// Finds the main menu's home screen: the <c>MenuScreen</c> named Home that opens on start and has

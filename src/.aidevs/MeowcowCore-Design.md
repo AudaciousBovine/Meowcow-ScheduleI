@@ -539,8 +539,13 @@ the way `SettingRows` follows a Core setting's `Changed`.
 - File: proposed `SuiteSettings/VanillaSettingAdapters.cs` (data logic; the layout stays in
   `Menus/SettingsMenu`). New file: asked before creating.
 - `[PERFORMANCE]` built once per window build (about 35 rows); a change is one apply and one write.
-  `ApplyInputSettings` reloads every binding override and toggles all input actions, so the mouse
-  sensitivity slider applies on release, not on every drag step.
+  `ApplyInputSettings` reloads every binding override and toggles all input actions, so input sliders
+  **settle** (apply 0.25 s after the value stops changing) instead of applying on every drag step. Vanilla
+  itself is mixed (most sliders apply on every change, Camera Bobbing on drag end). Applying on release
+  exactly would need one more injected pointer handler; settling gives the same result for drags.
+- Slider ranges are read from vanilla's own rows at build (a range changed by an update is followed); values
+  use each row script's own conversion (volume ×100, sensitivity ×30, the pointer curve). Rows re-read their
+  values each time the window opens (they may have changed in vanilla's menu).
 - `[SOURCE]` vanilla `Settings`, `VSyncToggle` (read `UnappliedDisplaySettings`, apply through
   `SettingsScreen.ApplyDisplaySettings`).
 
@@ -556,12 +561,14 @@ the way `SettingRows` follows a Core setting's `Changed`.
   their vanilla row scripts during R3.
 
 **Unmapped-setting detection.** Catches settings a game update adds.
-- **Row scan:** at each menu load, every row on vanilla's Settings pages must be in the adapter table, on the
-  "deliberately not shown" list (headers, the Apply button Core replaces), or on the "pending" list (key
-  bindings until slice 4). Anything else is unmapped.
+- **Script scan** (decided in R2, replaces the row-name scan): every setting row on vanilla's Settings screen
+  carries a script from `ScheduleOne.UI.Settings`. Each must match an adapter's key (type name, plus the
+  script's variant where one type serves several rows: `AudioSlider` channel, `SensitivitySlider`
+  Mouse/Gamepad, `PlayerLogExporterButton` current/previous) or be on the "not adapted" list (later slices,
+  the confirm dialog). A new script, or a new variant of one, is caught whatever its row is called.
 - **Field scan:** every field of vanilla's settings objects (`DisplaySettings`, `GraphicsSettings`, …) must be
-  covered by an adapter or listed (e.g. `BindingOverrides`). Catches a new setting even if its row is named
-  oddly.
+  covered by an adapter or listed (e.g. `BindingOverrides`). Catches a new setting even if its row has no
+  new script.
 - Unmapped settings are logged as an **error** naming each one, and a **yellow line** shows in the window's
   bottom bar, between Back and the vanilla toggle: "1 vanilla setting isn't shown here — use Show Vanilla
   Settings". No line when everything is mapped.
@@ -583,13 +590,30 @@ the way `SettingRows` follows a Core setting's `Changed`.
   its settings get adapters too. Decided in R4 from vanilla `GameSettingsWindow`.
 
 **Slice order.**
-- **R1. The window:** the cloned window and its layout, the Settings buttons pointed at the chosen menu, the
-  vanilla toggle and its way back, the warning line's place. The in-place reorganising, pristine copy and
-  moved-row code are removed once R1 works.
-- **R2. Simple adapters:** Other, Audio, Gamepad, Input (not bindings), Core's own rows (skips, keyboard/
-  gamepad split), and both detection scans.
-- **R3. Graphics and Display:** Graphics adapters; Display adapters with the struct handling, the Apply
-  button and Core's confirm dialog.
+- **R1. The window — built:** the cloned window and its layout (Core rows live, a temporary line on pages
+  waiting for adapters), the main menu's Settings button pointed at the chosen menu, the footer API (buttons,
+  notice line), "Show Vanilla Settings Menu" in the window's footer, and on vanilla's screen "Show Improved
+  Settings Menu" and Back hanging below its frame (vanilla's corner prompt hidden while it's open). The
+  in-place reorganising, pristine copy and moved-row code are removed.
+- **R2. Simple adapters — built:** Other (with the two Export Player Log buttons, as button rows copied from
+  vanilla's, labelled with vanilla's own text and spaced in rows of their own), Audio, Gamepad, Input (not
+  bindings), both detection scans and the yellow footer line, and the Keybinds tab's pointer to vanilla's
+  menu for bindings. Slider rows write their own value text (vanilla-bound rows have no Changed event).
+- **Window navigation** (after R2, in `MeowcowWindow`, so both windows get it): the D-pad moves over the left
+  tabs and top subtabs; Confirm enters the page; Back returns to the tabs (and closes the window from
+  there). Inside a page, vanilla's own navigation. On a slider, LB/RB move it 1 and LT/RT 10 (in its own
+  units); the D-pad's left/right don't. LB/RB no longer cycle tabs. Inputs (probed in game): LB/RB =
+  `UITabNavigationPrimaryAxis` (±1), LT/RT = `UITabNavigationSecondaryAxis` (analog, a press counted past
+  half-way), D-pad left/right also drive `UITabNavigationTertiaryAxis`; the `UIModifyAmountIncrement` axes
+  don't move in menus. Back: an exit listener above the window's (higher priority runs first; `Used` stops
+  the rest). Tab strips (`UITab`, non-navigable) stop cycling when locked.
+- **R3. Graphics and Display — written, being tested:** Graphics adapters (set, apply, save); Display adapters
+  through the unapplied copy (struct read, changed, written back). **No Apply button:** vanilla applies every
+  display change at once; Resolution, Monitor, Display Mode and V-Sync then ask to keep or revert (Core's
+  `SuiteUI/ConfirmDialog`: 15 s from vanilla's constant, "Reverting in {0:0.0} seconds", Keep/Revert buttons,
+  Back or timeout reverts, Submit keeps). Interface Scale shows "%" (sliders take a display format) and uses
+  vanilla's constant 7–15 range. Display Mode is looked up in the available list (vanilla selects by enum
+  number). Monitor shows only with two or more displays; changing it refreshes the resolution list.
 - **R4. In-game:** the pause menu's window and Current Game.
 - Then **slice 4** (Core's keybind rows); the Keybinds pointer line and the "pending" list go.
 

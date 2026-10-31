@@ -139,8 +139,9 @@ public sealed class WindowPage
     /// gamepad left/right press. <paramref name="onChanged"/> runs while dragging and on each press.
     /// </summary>
     /// <param name="description">[CHANGED] Shown in the page's description panel; empty: no info icon, no panel.</param>
+    /// <param name="format">[CHANGED] How the value is shown (e.g. "100%"); null: the number itself.</param>
     public SliderRow? AddSlider(string label, float min, float max, float step, bool wholeNumbers, float value,
-        Action<float> onChanged, string description = "")
+        Action<float> onChanged, string description = "", Func<float, string>? format = null)
     {
         GameObject? row = NewRow(_window.Templates.SliderRow, label, "slider");
         if (row == null) return null;
@@ -155,17 +156,23 @@ public sealed class WindowPage
         slider.SetValueWithoutNotify(value);
         option.stepSize = step;
         TMP_Text? valueText = option.valueText;
-        if (valueText != null) valueText.text = SliderRow.Format(value);
+        if (valueText != null) valueText.text = format != null ? format(value) : SliderRow.Format(value);
 
         option.OnChanged = new UnityEvent<float>();
         option.OnChanged.AddListener(_window.Keep(UIBuilder.ToIl2Cpp<UnityAction<float>>(
-            new Action<float>(v => UIBuilder.RunSafely(() => onChanged(v), $"'{label}' change")))));
+            new Action<float>(v => UIBuilder.RunSafely(() =>
+            {
+                // [CHANGED] The row writes its own value text. It was only rewritten when a Core setting's
+                // Changed event came back (SettingRows), so rows bound to vanilla (adapters) kept the old number.
+                if (valueText != null) valueText.text = format != null ? format(v) : SliderRow.Format(v);
+                onChanged(v);
+            }, $"'{label}' change")))));
 
         Register(option.selectable);
         AttachDescription(row.transform, label, description);
         AlignRow(row.transform);
         row.SetActive(true);
-        return new SliderRow(slider, valueText);
+        return new SliderRow(slider, valueText, format);
     }
 
     /// <summary>A choice row (dropdown). <paramref name="onChanged"/> gets the chosen index.</summary>
@@ -214,52 +221,6 @@ public sealed class WindowPage
     }
 
     /// <summary>
-    /// Moves an existing row (e.g. one of vanilla's, with its own setting script) to the end of this page,
-    /// and registers its controls with the page's gamepad panel. Only the controls in
-    /// <paramref name="gamepadControls"/> that sit inside the row are registered, so a row keeps exactly
-    /// the gamepad reach it had before.
-    /// </summary>
-    /// <param name="label">A new label for the row, or null to keep its own.</param>
-    /// <remarks>
-    /// [CHANGED] New for the vanilla Settings rework: vanilla's rows are moved, not copied, so their own
-    /// scripts keep applying vanilla's settings.
-    /// [PERFORMANCE] One reparent, and a pass over the given controls.
-    /// </remarks>
-    /// <param name="description">[CHANGED] Shown in the page's description panel; null or empty: none.</param>
-    public void AddExistingRow(Transform row, IReadOnlyList<UISelectable> gamepadControls, string? label = null,
-        string? description = null)
-    {
-        row.SetParent(Rows, false);
-        if (label != null) SetRowLabel(row, label);
-        AttachDescription(row, null, description);
-        AlignRow(row);
-
-        int registered = 0;
-        foreach (UISelectable control in gamepadControls)
-        {
-            if (control != null && control.transform.IsChildOf(row))
-            {
-                Panel.AddSelectable(control);
-                registered++;
-            }
-        }
-
-        // [CHANGED] A row none of whose controls were on a vanilla list registers its own instead. Selectables
-        // can also join a panel at runtime (addToPanelOnAwake), and the vanilla Gamepad page has never been
-        // awake when Settings is reorganised, so its rows (Pointer Sensitivity, Gamepad Camera Sensitivity)
-        // were unreachable by gamepad. Rows that did have listed controls keep exactly vanilla's reach.
-        if (registered == 0)
-        {
-            foreach (UISelectable control in OwnSelectables(row))
-            {
-                Panel.AddSelectable(control);
-                registered++;
-            }
-            if (registered > 0) Log.Debug($"Row '{row.name}': registered its own {registered} gamepad control(s)");
-        }
-    }
-
-    /// <summary>
     /// A row's own gamepad controls: every UISelectable in it, except those in a dropdown's hidden item list
     /// (that list is its own panel when open).
     /// </summary>
@@ -284,21 +245,82 @@ public sealed class WindowPage
     }
 
     /// <summary>
-    /// Renames a row: through its UIOption (on/off and slider rows label themselves from it), or its name
-    /// label (dropdown rows).
+    /// A button row: a copy of vanilla's row button (e.g. Export Player Log) with <paramref name="label"/>,
+    /// on the gamepad list. Null if the window has no button row to copy.
     /// </summary>
-    private static void SetRowLabel(Transform row, string label)
+    /// <remarks>
+    /// [CHANGED] New (Settings rebuild R2). Keeps vanilla's own layout for the button (it spans the row), so
+    /// it isn't aligned into the label and control columns. Pass a handler that's the same instance on every
+    /// build (e.g. from a static table): <c>UIBuilder.SetClick</c> keeps one converted handler per delegate.
+    /// [PERFORMANCE] One clone.
+    /// </remarks>
+    /// <param name="size">[CHANGED] The button's size, e.g. vanilla's own row's; null: measured from the copy.</param>
+    public ButtonRow? AddButton(string label, Action onClick, Vector2? size = null)
     {
-        Il2CppScheduleOne.UIOption? option = row.GetComponent<Il2CppScheduleOne.UIOption>();
-        if (option != null)
+        GameObject? row = NewRow(_window.Templates.ButtonRow, label, "button");
+        if (row == null) return null;
+
+        Button? button = row.GetComponentInChildren<Button>(true);
+        if (button == null)
         {
-            SetOptionLabel(option, label);
-            return;
+            Log.Warning($"Button row template has no button; '{label}' not shown");
+            UObject.Destroy(row);
+            return null;
         }
 
-        TMP_Text? name = row.Find(UIPathIndex.RowOptionName)?.GetComponent<TMP_Text>();
-        if (name != null) name.text = label;
-        else Log.Warning($"Row '{row.name}' has no label to rename");
+        var texts = row.GetComponentsInChildren<TMP_Text>(true);
+        TMP_Text? text = texts.Length > 0 ? texts[0] : null;
+        if (text != null) text.text = label;
+
+        // [CHANGED] Vanilla's row button is the row itself, so it sat flush against its neighbours (vanilla's
+        // page spaces them further apart). It now sits in a row of its own with room above and below.
+        if (button.gameObject == row) row = WrapButton(button, label, size);
+
+        UIBuilder.SetClick(button, onClick);
+        Register(button.GetComponent<UISelectable>());
+        row.SetActive(true);
+        button.gameObject.SetActive(true);
+        return new ButtonRow(button, text, label);
+    }
+
+    private const float ButtonRowPadding = 4f; // above and below a row button, inside its row ([CHANGED] was 8)
+
+    /// <summary>
+    /// Puts a row button inside a new row, as tall as the button plus padding, keeping the button's own size
+    /// and its left edge. Returns the new row.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New. [CHANGED] Sized from <paramref name="size"/> when given: the template was moved out of its
+    /// page when taken, so a button stretched to its old row now measures against the whole window (the rows
+    /// came out far too tall).
+    /// [PERFORMANCE] One empty object per button row.
+    /// </remarks>
+    private GameObject WrapButton(Button button, string label, Vector2? size)
+    {
+        RectTransform buttonRect = button.GetComponent<RectTransform>();
+        LayoutElement? element = button.GetComponent<LayoutElement>();
+        float width = size?.x ?? (element != null && element.preferredWidth > 0f ? element.preferredWidth : buttonRect.rect.width);
+        float height = size?.y ?? (element != null && element.preferredHeight > 0f ? element.preferredHeight : buttonRect.rect.height);
+
+        var wrapper = new GameObject(label);
+        RectTransform wrapperRect = wrapper.AddComponent<RectTransform>();
+        wrapperRect.SetParent(Rows, false);
+        wrapperRect.SetSiblingIndex(buttonRect.GetSiblingIndex());
+        LayoutElement rowElement = wrapper.AddComponent<LayoutElement>();
+        rowElement.minHeight = height + ButtonRowPadding * 2f;
+        rowElement.preferredHeight = rowElement.minHeight;
+        // [CHANGED] The size itself too: the page's row list doesn't control its rows' heights, so a new
+        // object kept Unity's default 100×100 and the buttons sat far apart.
+        wrapperRect.sizeDelta = new Vector2(width, rowElement.minHeight);
+
+        buttonRect.SetParent(wrapperRect, false);
+        if (element != null) element.ignoreLayout = true; // placed by hand inside its row
+        buttonRect.anchorMin = new Vector2(0f, 0.5f);
+        buttonRect.anchorMax = new Vector2(0f, 0.5f);
+        buttonRect.pivot = new Vector2(0f, 0.5f);
+        buttonRect.sizeDelta = new Vector2(width, height);
+        buttonRect.anchoredPosition = Vector2.zero;
+        return wrapper;
     }
 
     /// <summary>A line of text in the window's title font, e.g. "No settings yet".</summary>
@@ -428,27 +450,6 @@ public sealed class WindowPage
         }
 
         Align(row, label, controls, notes, icons);
-    }
-
-    /// <summary>
-    /// Lines up a row whose parts Core picks itself, e.g. a mouse-button row split out of vanilla's mouse
-    /// info: <paramref name="label"/> goes in the label column, <paramref name="controls"/> start at the
-    /// control column. Same rule as every other row.
-    /// </summary>
-    /// <remarks>[CHANGED] New for the Keybinds touch-ups.</remarks>
-    public void AlignCustomRow(Transform row, TMP_Text label, IReadOnlyList<RectTransform> controls) =>
-        Align(row, label, controls, Array.Empty<RectTransform>(), Array.Empty<RectTransform>());
-
-    /// <summary>
-    /// Moves a rect so its left edge is at the label column's left edge (e.g. a button that replaces a
-    /// section header).
-    /// </summary>
-    /// <remarks>[CHANGED] New for the Keybinds touch-ups.</remarks>
-    public static void PlaceAtLabelColumnStart(Transform row, RectTransform rect)
-    {
-        float columnLeft = row.TryCast<RectTransform>()!.rect.xMin + LabelIndent;
-        AnchorLeftKeepPlace(rect);
-        rect.anchoredPosition += new Vector2(columnLeft - RowLeftEdge(row, rect), 0f);
     }
 
     /// <summary>The shared rule: label (and notes) into the column, controls to the control column.</summary>

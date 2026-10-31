@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using Il2CppTMPro;
 using MeowcowCore.Foundation;
@@ -74,7 +75,15 @@ internal sealed class DescriptionPanel
         _root = root;
         _title = title;
         _body = body;
+        _group = root.GetComponent<CanvasGroup>();
     }
+
+    // [CHANGED] Hiding waits a moment, then fades: moving the mouse across the small gap between rows
+    // briefly leaves every row, which made the panel flash. A new row arriving in time cancels the hide.
+    private const float HideDelay = 0.15f;
+    private const float FadeTime = 0.1f;
+    private readonly CanvasGroup? _group;
+    private int _hideToken; // bumped by every show or hide, so an older pending hide gives up
 
     /// <summary>
     /// Builds the panel on the right of <paramref name="page"/>, hidden, with text in the font of
@@ -101,6 +110,11 @@ internal sealed class DescriptionPanel
         }
         background.color = Shade;
         background.raycastTarget = false;
+
+        // [CHANGED] For the hide fade. Never takes clicks or hover (the panel only shows text).
+        CanvasGroup group = root.AddComponent<CanvasGroup>();
+        group.blocksRaycasts = false;
+        group.interactable = false;
 
         VerticalLayoutGroup layout = root.AddComponent<VerticalLayoutGroup>();
         layout.padding = new RectOffset { left = (int)Padding, right = (int)Padding, top = (int)Padding, bottom = (int)Padding };
@@ -174,18 +188,26 @@ internal sealed class DescriptionPanel
         _hover = null;
         _selectionOwner = null;
         _selection = null;
-        Refresh();
+        Refresh(immediate: true); // [CHANGED] the page was left: no delay
     }
 
     /// <summary>Shows the hovered row's description, else the selected control's, else nothing.</summary>
-    private void Refresh()
+    /// <remarks>
+    /// [CHANGED] Hiding is delayed and faded (see <see cref="HideDelay"/>), unless <paramref name="immediate"/>.
+    /// [PERFORMANCE] A hide starts one short coroutine (a delay, then a few frames of fade); shows cost nothing
+    /// extra. Moving between rows quickly starts and cancels hides, never stacking work.
+    /// </remarks>
+    private void Refresh(bool immediate = false)
     {
         if (_root == null) return; // its window is gone
         Entry? wanted = _hover ?? _selection;
+        _hideToken++; // whatever happens now replaces any pending hide
+
         if (wanted == null)
         {
-            _shown = null;
-            if (_root.activeSelf) _root.SetActive(false);
+            if (!_root.activeSelf) return;
+            if (immediate || _group == null) HideNow();
+            else MelonLoader.MelonCoroutines.Start(HideAfterDelay(_hideToken));
             return;
         }
 
@@ -195,7 +217,36 @@ internal sealed class DescriptionPanel
             _body.text = wanted.Text;
             _shown = wanted;
         }
+        if (_group != null) _group.alpha = 1f; // a hide that had started fading is undone
         if (!_root.activeSelf) _root.SetActive(true);
+    }
+
+    private void HideNow()
+    {
+        _shown = null;
+        if (_group != null) _group.alpha = 1f; // ready for the next show
+        _root.SetActive(false);
+    }
+
+    /// <summary>Waits, then fades out; gives up as soon as another show or hide happens.</summary>
+    private IEnumerator HideAfterDelay(int token)
+    {
+        float start = Time.unscaledTime;
+        while (Time.unscaledTime - start < HideDelay)
+        {
+            if (token != _hideToken || _root == null) yield break;
+            yield return null;
+        }
+
+        start = Time.unscaledTime;
+        while (Time.unscaledTime - start < FadeTime)
+        {
+            if (token != _hideToken || _root == null) yield break;
+            _group!.alpha = 1f - (Time.unscaledTime - start) / FadeTime;
+            yield return null;
+        }
+
+        if (token == _hideToken && _root != null) HideNow();
     }
 
     // ---------- Device changes ----------

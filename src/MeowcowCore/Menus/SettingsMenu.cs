@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using MeowcowCore.Foundation;
+using MeowcowCore.SuiteSettings;
 using MeowcowCore.SuiteSettingsManager;
 using MeowcowCore.SuiteUI;
 using UnityEngine;
 using UnityEngine.UI;
 using MenuScreen = Il2CppScheduleOne.UI.MainMenu.MenuScreen;
 using SettingsScreen = Il2CppScheduleOne.UI.MainMenu.SettingsScreen;
+using Il2CppScheduleOne.DevUtilities;
 using UObject = UnityEngine.Object;
+using VanillaSettings = Il2CppScheduleOne.DevUtilities.Settings;
 
 namespace MeowcowCore.Menus;
 
@@ -19,8 +22,10 @@ namespace MeowcowCore.Menus;
 /// <remarks>
 /// [CHANGED] Rewritten for the adapter rebuild (R1). Was: vanilla's real screen reorganised in place, with
 /// vanilla's rows moved into it, which kept inheriting vanilla state (shared screen, hidden-page navigation).
-/// R1 builds the window, routes the main menu's Settings button and adds the toggle; vanilla's settings
-/// get adapters in R2, Graphics and Display in R3, the pause menu in R4.
+/// R1 built the window, routed the main menu's Settings button and added the toggle. R2: Other, Audio,
+/// Gamepad and Input are bound to vanilla through adapters (SuiteSettings/VanillaSettingAdapters), and vanilla
+/// settings without one are reported (log error, yellow footer line). [CHANGED] R3: Display and Graphics, with
+/// Core's confirm dialog (SuiteUI/ConfirmDialog) for the display changes vanilla confirms. The pause menu in R4.
 /// [PERFORMANCE] At menu load: one button rewire and one small button added to vanilla's screen. The window
 /// is built on first open per scene (one clone, like Meowcow Settings). Nothing per frame.
 /// </remarks>
@@ -38,7 +43,7 @@ internal static class SettingsMenu
     private const float BackWidth = 140f;      // as the improved window's Back button
     private const string BackName = "Back";
 
-    // [TEMPORARY] R1 only: shown on pages whose vanilla settings arrive in R2/R3.
+    // [TEMPORARY] Until R3/R4: shown on pages with vanilla settings still waiting for adapters.
     private const string PendingText = "Vanilla settings arrive in the next update";
 
     /// <summary>All of a vanilla page's rows not placed elsewhere, in their order.</summary>
@@ -49,6 +54,27 @@ internal static class SettingsMenu
 
     /// <summary>As a page name: a Core setting (by key) rather than a vanilla row.</summary>
     private const string CoreSetting = "@core";
+
+    /// <summary>[CHANGED] As a page name: a vanilla setting, by its adapter's id.</summary>
+    private const string Adapter = "@vanilla";
+
+    /// <summary>[CHANGED] As a page name: a line of text (the row field holds it).</summary>
+    private const string Note = "@note";
+
+    private const string BindingsNote = "Key bindings: use Show Vanilla Settings Menu until the keybind rework";
+    private const string ExportedMessage = "Exported";
+    private const string ConfirmTitle = "Keep these display settings?";
+    private const string ConfirmCountdown = "Reverting in {0:0.0} seconds"; // vanilla's wording
+    private const float MessageSeconds = 2f;
+
+    // [CHANGED] Yellow: nothing is broken, a setting is only reachable in vanilla's menu.
+    private static readonly Color WarningColor = new(1f, 0.85f, 0.2f, 1f);
+
+    /// <summary>
+    /// [CHANGED] Re-reads each vanilla-bound row's value. Run each time the window opens: the value may have
+    /// changed in vanilla's menu since. [PERFORMANCE] One read per row per open.
+    /// </summary>
+    private static readonly List<Action> Refreshers = new();
 
     /// <summary>Key of the remembered choice: true opens vanilla's own Settings screen.</summary>
     internal const string UseVanillaMenuKey = "UseVanillaSettingsMenu";
@@ -66,8 +92,9 @@ internal static class SettingsMenu
     /// <summary>
     /// Where each setting goes: vanilla page and row name (or a Core setting), our tab, our subtab (null for a
     /// tab with one page), and an optional new label. Tabs and subtabs appear in the order they first appear
-    /// here. [CHANGED] R1: only Core settings get rows; vanilla entries get adapters in R2 (their page and row
-    /// names stay: R2's detection checks vanilla's rows against them).
+    /// here. [CHANGED] R2: a vanilla setting is placed by its adapter's id (SuiteSettings/VanillaSettingAdapters,
+    /// which also holds its label and description); entries still naming a vanilla page and row are waiting for
+    /// adapters (R3, R4) and show the temporary line.
     /// </summary>
     /// <remarks>
     /// The one place that knows vanilla's row names (instead of UIPathIndex), since the names only mean
@@ -76,55 +103,55 @@ internal static class SettingsMenu
     /// </remarks>
     private static readonly Placement[] Layout =
     {
-        // General. [CHANGED] Core's switches for vanilla behaviour come first (see SuiteSettings/VanillaSkips).
+        // General. Core's switches for vanilla behaviour come first (see SuiteSettings/VanillaSkips).
         new(CoreSetting, SuiteSettings.VanillaSkips.SkipDisclaimerKey, "General", "Main"),
         new(CoreSetting, SuiteSettings.VanillaSkips.AlwaysSkipTutorialKey, "General", "Main"),
         new(CoreSetting, SuiteSettings.VanillaSkips.AlwaysSkipIntroKey, "General", "Main"),
-        new("Display", "PauseOnLoseFocus", "General", "Main", Description: "Pauses the game when its window loses focus, such as when you switch to another program."),
-        new("Other", "AutoBackupSaves", "General", "Main", Description: "When loading an existing save on a new version of the game, a backup is made first."),
-        // [CHANGED] The current save's settings (in a save only): vanilla's Game page, moved whole, since a
-        // script on the page runs its rows and shows its host-only Blocker.
-        new("Game", WholePage, "General", "Current Game", InSaveOnly: true),
-        new("Other", "Export Player Log", "General", "Misc"),
-        new("Other", "Export Player Log (1)", "General", "Misc"),
+        new(Adapter, "display.pauseOnFocusLost", "General", "Main"),
+        new(Adapter, "other.autoBackup", "General", "Main"),
+        new("Game", WholePage, "General", "Current Game", InSaveOnly: true), // R4
+        new(Adapter, "log.export", "General", "Misc"),
+        new(Adapter, "log.exportPrevious", "General", "Misc"),
 
         // Gameplay
-        new("Display", "InterfaceScaleSlider", "Gameplay", "Interface", Description: "The size of the game's interface."),
-        new("Display", "Units", "Gameplay", "Interface", Description: "Metric or imperial units, for weights and distances."),
-        new("Gamepad", "PointerSensitivity", "Gameplay", "Interface", Description: "How fast the on-screen pointer moves with a gamepad."),
-        new("Display", "CameraBobbingSlider", "Gameplay", "Camera", Description: "How much the camera bobs while you move."),
-        new("Graphics", "FOV", "Gameplay", "Camera", Description: "Field of view: how wide the camera sees."),
-        new("Controls", "SettingsSlider", "Gameplay", "Camera", "Mouse Camera Sensitivity", Description: "How fast the camera turns with the mouse."),
-        new("Controls", "InvertYToggle", "Gameplay", "Camera", "Mouse Invert Y", Description: "Inverts looking up and down with the mouse."),
-        new("Gamepad", "CameraSensitivity", "Gameplay", "Camera", "Gamepad Camera Sensitivity", Description: "How fast the camera turns with a gamepad."),
+        new(Adapter, "display.interfaceScale", "Gameplay", "Interface"),
+        new(Adapter, "display.units", "Gameplay", "Interface"),
+        new(Adapter, "gamepad.pointer", "Gameplay", "Interface"),
+        new(Adapter, "display.cameraBob", "Gameplay", "Camera"),
+        new(Adapter, "graphics.fov", "Gameplay", "Camera"),
+        new(Adapter, "input.mouseSensitivity", "Gameplay", "Camera"),
+        new(Adapter, "input.invertY", "Gameplay", "Camera"),
+        new(Adapter, "gamepad.cameraSensitivity", "Gameplay", "Camera"),
         new(CoreSetting, SuiteSettings.InputSplit.GamepadInvertYKey, "Gameplay", "Camera"),
 
-        // Graphics
-        new("Display", "Resolution", "Graphics", null),
-        new("Display", "Display", "Graphics", null),
-        new("Display", "Display Mode", "Graphics", null),
-        new("Display", "VSync", "Graphics", null, Description: "Matches frames to your monitor's refresh rate to prevent tearing."),
-        new("Display", "TargetFramerateSlider", "Graphics", null, Description: "The frame rate limit, when V-Sync is off."),
-        new("Graphics", "QualityPopupSelector", "Graphics", null),
-        new("Graphics", "AntiAliasingPopupSelector", "Graphics", null, Description: "Smooths jagged edges."),
-        new("Graphics", "SSAOToggle", "Graphics", null, Description: "Soft shadows where surfaces meet. Costs some performance."),
-        new("Graphics", "GodRaysToggle", "Graphics", null, Description: "Visible shafts of sunlight. Costs some performance."),
-        new("Display", "Apply", "Graphics", null), // appears after a display change; applies it
+        // Graphics. [CHANGED] R3: no Apply row; display changes apply at once (some then ask to keep or revert).
+        new(Adapter, "display.resolution", "Graphics", null),
+        new(Adapter, "display.monitor", "Graphics", null),
+        new(Adapter, "display.mode", "Graphics", null),
+        new(Adapter, "display.vsync", "Graphics", null),
+        new(Adapter, "display.targetFps", "Graphics", null),
+        new(Adapter, "graphics.quality", "Graphics", null),
+        new(Adapter, "graphics.antiAliasing", "Graphics", null),
+        new(Adapter, "graphics.ssao", "Graphics", null),
+        new(Adapter, "graphics.godRays", "Graphics", null),
 
         // Audio
-        new("Audio", RestOfPage, "Audio", null),
+        new(Adapter, "audio.master", "Audio", null),
+        new(Adapter, "audio.music", "Audio", null),
+        new(Adapter, "audio.sfx", "Audio", null),
+        new(Adapter, "audio.ambient", "Audio", null),
+        new(Adapter, "audio.weather", "Audio", null),
+        new(Adapter, "audio.footsteps", "Audio", null),
+        new(Adapter, "audio.dialogue", "Audio", null),
+        new(Adapter, "audio.ui", "Audio", null),
 
-        // Keybinds (vanilla's binding sections, until the keybind rework). [CHANGED] The "Bindings" header
-        // opens the bindings, after Sprint Mode; its Restore Default button moves to the top of the page
-        // (see TouchUpKeybinds).
-        new("Controls", "SprintModePopupSelector", "Keybinds", "Mouse & Keyboard", Description: "How the sprint key works: press to toggle, or hold."),
+        // Keybinds. Bindings come with the keybind rework (slice 4); until then, a pointer to vanilla's menu.
+        new(Adapter, "input.sprintMode", "Keybinds", "Mouse & Keyboard"),
         new(CoreSetting, SuiteSettings.InputSplit.KeyboardSneakModeKey, "Keybinds", "Mouse & Keyboard"),
-        new("Controls", "BindingLabel", "Keybinds", "Mouse & Keyboard"),
-        new("Controls", RestOfPage, "Keybinds", "Mouse & Keyboard"),
+        new(Note, BindingsNote, "Keybinds", "Mouse & Keyboard"),
         new(CoreSetting, SuiteSettings.InputSplit.GamepadSprintModeKey, "Keybinds", "Gamepad"),
         new(CoreSetting, SuiteSettings.InputSplit.GamepadSneakModeKey, "Keybinds", "Gamepad"),
-        new("Gamepad", "BindingLabel", "Keybinds", "Gamepad"),
-        new("Gamepad", RestOfPage, "Keybinds", "Gamepad"),
+        new(Note, BindingsNote, "Keybinds", "Gamepad"),
     };
 
     /// <summary>
@@ -208,7 +235,11 @@ internal static class SettingsMenu
             if (_window != null) _window.Closed += MeowcowSettings.FlushAll; // Core rows save pending changes
         }
 
-        if (_window != null) _window.Open();
+        if (_window != null)
+        {
+            RefreshAll();
+            _window.Open();
+        }
         else OpenVanilla();
     }
 
@@ -230,6 +261,12 @@ internal static class SettingsMenu
         Open();
     }
 
+    /// <summary>Every vanilla-bound row re-reads its value (and dynamic choices their options).</summary>
+    private static void RefreshAll()
+    {
+        foreach (Action refresh in Refreshers) UIBuilder.RunSafely(refresh, "refreshing a Settings row");
+    }
+
     // Static handlers (not lambdas): UIBuilder.SetClick keeps one converted handler per method.
     private static void ShowVanilla() => SwitchTo(vanilla: true);
     private static void ShowImproved() => SwitchTo(vanilla: false);
@@ -242,6 +279,22 @@ internal static class SettingsMenu
         MeowcowWindow? window = MeowcowWindow.CreateFromSettings(WindowName, Title);
         if (window == null) return null;
 
+        Refreshers.Clear(); // the previous window's rows are gone
+
+        // [CHANGED] R3: display changes vanilla confirms are confirmed in this window's own dialog; a revert
+        // puts every row back.
+        MeowcowWindow dialogWindow = window;
+        VanillaSettingAdapters.ConfirmDisplay = (keep, revert) => ConfirmDialog.Show(dialogWindow, ConfirmTitle,
+            ConfirmCountdown, Il2CppScheduleOne.UI.Settings.ConfirmDisplaySettings.RevertTime, keep, () =>
+            {
+                revert();
+                RefreshAll();
+            });
+        VanillaSettings? settings = Singleton<VanillaSettings>.Instance;
+        // [CHANGED] R2: vanilla's untouched screen tells us its row scripts (for slider ranges) and anything
+        // without an adapter.
+        VanillaSettingAdapters.ScanResult? scan = _vanilla != null ? VanillaSettingAdapters.Scan(_vanilla.transform) : null;
+
         var tabs = new Dictionary<string, WindowTab>(StringComparer.Ordinal);
         var pages = new Dictionary<string, WindowPage>(StringComparer.Ordinal);
         var pending = new HashSet<WindowPage>();
@@ -253,7 +306,9 @@ internal static class SettingsMenu
                 if (placement.InSaveOnly) continue; // R4
                 WindowPage page = PageFor(window, tabs, pages, placement);
                 if (placement.Page == CoreSetting) AddCoreSetting(page, placement);
-                else pending.Add(page); // [TEMPORARY] R1: vanilla settings get adapters in R2/R3
+                else if (placement.Page == Adapter) AddAdapterRow(page, placement.Row, settings, scan);
+                else if (placement.Page == Note) page.AddText(placement.Row);
+                else pending.Add(page); // [TEMPORARY] vanilla settings whose adapters come in R3/R4
             }
             catch (Exception e)
             {
@@ -264,7 +319,140 @@ internal static class SettingsMenu
         foreach (WindowPage page in pending) page.AddText(PendingText); // [TEMPORARY]
 
         window.AddFooterButton("ShowVanilla", ShowVanillaLabel, ShowVanilla);
+
+        int unmapped = scan?.Unmapped.Count ?? 0;
+        if (unmapped > 0)
+        {
+            window.SetFooterNotice(unmapped == 1
+                ? "1 vanilla setting isn't shown here — use Show Vanilla Settings Menu"
+                : $"{unmapped} vanilla settings aren't shown here — use Show Vanilla Settings Menu", WarningColor);
+        }
         return window;
+    }
+
+    /// <summary>
+    /// A row bound to a vanilla setting through its adapter. Sliders take their range from vanilla's own
+    /// row (so a range changed by an update is followed); a slider whose vanilla row isn't found is left out.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New (R2). Changes go through VanillaSettingAdapters.Apply (settling ones wait for the value
+    /// to stop changing). [PERFORMANCE] One row per adapter, once per window build.
+    /// </remarks>
+    private static void AddAdapterRow(WindowPage page, string id, VanillaSettings? settings,
+        VanillaSettingAdapters.ScanResult? scan)
+    {
+        VanillaAdapter? adapter = VanillaSettingAdapters.Find(id);
+        if (adapter == null)
+        {
+            Log.Warning($"No adapter '{id}'; not shown");
+            return;
+        }
+        if (settings == null)
+        {
+            Log.Warning($"Vanilla settings not found; '{adapter.Label}' not shown");
+            return;
+        }
+        if (adapter.Visible != null && !adapter.Visible()) return; // [CHANGED] R3: e.g. Monitor with one display
+
+        // [CHANGED] R3: some changes affect other rows (or are reverted), so every row re-reads afterwards.
+        void Run(Action apply) => VanillaSettingAdapters.Apply(adapter, () =>
+        {
+            apply();
+            if (adapter.RefreshAllAfter) RefreshAll();
+        });
+
+        switch (adapter.Kind)
+        {
+            case AdapterKind.Toggle:
+            {
+                ToggleRow? row = page.AddToggle(adapter.Label, adapter.GetBool!(settings),
+                    v => Run(() => adapter.SetBool!(settings, v)), adapter.Description);
+                if (row != null) Refreshers.Add(() => row.SetValue(adapter.GetBool!(settings)));
+                break;
+            }
+            case AdapterKind.Slider:
+            {
+                MonoBehaviour? script = null;
+                scan?.Scripts.TryGetValue(adapter.Script, out script);
+                // [CHANGED] An adapter's fixed range wins (vanilla sets some ranges only when the row is enabled).
+                SliderRange? found = adapter.Range ?? (script != null ? VanillaSettingAdapters.RangeOf(script) : null);
+                if (found == null)
+                {
+                    Log.Warning($"Vanilla's '{adapter.Script}' slider not found; '{adapter.Label}' not shown");
+                    return;
+                }
+                SliderRange range = found.Value;
+                SliderRow? row = page.AddSlider(adapter.Label, range.Min, range.Max, 1f, range.WholeNumbers,
+                    adapter.GetFloat!(settings, range),
+                    v => Run(() => adapter.SetFloat!(settings, range, v)), adapter.Description, adapter.Format);
+                if (row != null) Refreshers.Add(() => row.SetValue(adapter.GetFloat!(settings, range)));
+                break;
+            }
+            case AdapterKind.Choice:
+            {
+                ChoiceRow? row = page.AddChoice(adapter.Label, adapter.Choices!(), adapter.GetIndex!(settings),
+                    i => Run(() => adapter.SetIndex!(settings, i)), adapter.Description);
+                if (row != null)
+                {
+                    // [CHANGED] R3: dynamic choices (resolutions) are re-read too.
+                    if (adapter.DynamicChoices) Refreshers.Add(() => row.SetChoices(adapter.Choices!(), adapter.GetIndex!(settings)));
+                    else Refreshers.Add(() => row.SetValue(adapter.GetIndex!(settings)));
+                }
+                break;
+            }
+            case AdapterKind.Button:
+            {
+                // [CHANGED] Vanilla's own wording when its row is found ("Export Player.log"), so labels follow
+                // vanilla; the adapter's label otherwise.
+                MonoBehaviour? script = null;
+                scan?.Scripts.TryGetValue(adapter.Script, out script);
+                string label = (script != null ? VanillaText(script) : null) ?? adapter.Label;
+                // [CHANGED] And vanilla's own size: its row is still laid out where vanilla put it.
+                RectTransform? vanillaRect = script != null ? script.GetComponent<RectTransform>() : null;
+                Vector2? size = vanillaRect != null && vanillaRect.rect.height > 0f ? vanillaRect.rect.size : null;
+                ButtonRow? row = null;
+                row = page.AddButton(label, ButtonHandler(adapter, () => row), size);
+                if (row != null) Refreshers.Add(() => row.SetEnabled(adapter.Enabled?.Invoke() ?? true));
+                break;
+            }
+        }
+    }
+
+    /// <summary>The first text in a vanilla row (its label or button text), or null if it has none.</summary>
+    private static string? VanillaText(MonoBehaviour script)
+    {
+        var texts = script.GetComponentsInChildren<Il2CppTMPro.TMP_Text>(true);
+        return texts.Length > 0 && !string.IsNullOrWhiteSpace(texts[0].text) ? texts[0].text : null;
+    }
+
+    /// <summary>
+    /// One click handler per button adapter, made once per run (UIBuilder.SetClick keeps one converted
+    /// handler per delegate). The row it updates is looked up at click time, so a rebuilt window's row is used.
+    /// </summary>
+    private static readonly Dictionary<string, Action> ButtonHandlers = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, Func<ButtonRow?>> ButtonRows = new(StringComparer.Ordinal);
+
+    private static Action ButtonHandler(VanillaAdapter adapter, Func<ButtonRow?> row)
+    {
+        ButtonRows[adapter.Id] = row;
+        if (!ButtonHandlers.TryGetValue(adapter.Id, out Action? handler))
+        {
+            handler = () => adapter.Click?.Invoke(() =>
+            {
+                ButtonRow? current = ButtonRows.TryGetValue(adapter.Id, out var get) ? get() : null;
+                if (current != null) MelonLoader.MelonCoroutines.Start(ShowBriefly(current, ExportedMessage));
+            });
+            ButtonHandlers[adapter.Id] = handler;
+        }
+        return handler;
+    }
+
+    /// <summary>Shows a message on a button row for a moment, then its label again.</summary>
+    private static System.Collections.IEnumerator ShowBriefly(ButtonRow row, string message)
+    {
+        row.ShowMessage(message);
+        yield return new WaitForSecondsRealtime(MessageSeconds);
+        row.ShowMessage(null);
     }
 
     private static void AddCoreSetting(WindowPage page, Placement placement)
