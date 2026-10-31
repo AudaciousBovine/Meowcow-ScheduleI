@@ -557,7 +557,7 @@ internal static class VanillaSettingAdapters
         // [CHANGED] R3: Display and Graphics now have adapters. (Their scripts include vanilla's own spellings
         // "IntefaceScaleSlider" and "FOVSLider": adapter keys must match them exactly.)
         "ConfirmDisplaySettings", // the revert dialog, not a row (Core has its own: SuiteUI/ConfirmDialog)
-        "GameSettingsWindow",     // R4: Current Game
+        "GameSettingsWindow",     // [CHANGED] Current Game: Console and Seeded Mixing become playthrough settings (save system)
         "Keybinder", "RestoreDefaultBindingsButton", // slice 4: key bindings
     };
 

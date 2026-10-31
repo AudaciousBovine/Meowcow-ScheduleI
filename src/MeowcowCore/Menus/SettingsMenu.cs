@@ -46,12 +46,6 @@ internal static class SettingsMenu
     // [TEMPORARY] Until R3/R4: shown on pages with vanilla settings still waiting for adapters.
     private const string PendingText = "Vanilla settings arrive in the next update";
 
-    /// <summary>All of a vanilla page's rows not placed elsewhere, in their order.</summary>
-    private const string RestOfPage = "*";
-
-    /// <summary>The vanilla page itself (Current Game, in a save; R4).</summary>
-    private const string WholePage = "#page";
-
     /// <summary>As a page name: a Core setting (by key) rather than a vanilla row.</summary>
     private const string CoreSetting = "@core";
 
@@ -109,7 +103,6 @@ internal static class SettingsMenu
         new(CoreSetting, SuiteSettings.VanillaSkips.AlwaysSkipIntroKey, "General", "Main"),
         new(Adapter, "display.pauseOnFocusLost", "General", "Main"),
         new(Adapter, "other.autoBackup", "General", "Main"),
-        new("Game", WholePage, "General", "Current Game", InSaveOnly: true), // R4
         new(Adapter, "log.export", "General", "Misc"),
         new(Adapter, "log.exportPrevious", "General", "Misc"),
 
@@ -154,21 +147,12 @@ internal static class SettingsMenu
         new(Note, BindingsNote, "Keybinds", "Gamepad"),
     };
 
-    /// <summary>
-    /// [CHANGED] Descriptions for the rows of whole pages (Current Game), by row name. Seeded Mixing's is
-    /// vanilla's own tooltip text.
-    /// </summary>
-    private static readonly Dictionary<string, string> WholePageDescriptions = new(StringComparer.Ordinal)
-    {
-        ["Seeded Mixing"] = "If enabled, the product mixing algorithm will be randomized using this save file's seed. " +
-                            "This will not affect your existing mixes.",
-        ["Console"] = "Enables the developer console in this save.",
-    };
-
-    /// <param name="InSaveOnly">The vanilla page only exists in a save; its absence elsewhere is expected.</param>
-    /// <param name="Description">[CHANGED] Shown in the page's description panel (with an info icon).</param>
-    private sealed record Placement(string Page, string Row, string Tab, string? Subtab, string? Label = null,
-        bool InSaveOnly = false, string? Description = null);
+    /// <remarks>
+    /// [CHANGED] Just where a setting goes: labels and descriptions live in the adapters (and Core settings).
+    /// The Current Game page and its InSaveOnly flag are gone (R4): Console and Seeded Mixing become
+    /// playthrough settings in Core's save system; until then they're in vanilla's menu.
+    /// </remarks>
+    private sealed record Placement(string Page, string Row, string Tab, string? Subtab);
 
 
     // ---------- Setup ----------
@@ -193,16 +177,7 @@ internal static class SettingsMenu
     /// <param name="settingsButton">The main menu's Settings button.</param>
     internal static void Setup(Button? settingsButton)
     {
-        _window = null; // the previous scene's window went with it
-        _vanilla = UIPathIndex.FindSettingsScreen();
-        if (_vanilla == null)
-        {
-            Log.Warning("Settings screen not found; Settings left vanilla");
-            return;
-        }
-
-        AddVanillaExtras(_vanilla);
-        FollowVanillaOpenClose(_vanilla);
+        if (!PrepareScene()) return;
 
         // [CHANGED] Replaces vanilla's wiring (Settings → SettingsScreen.Open) with the chooser.
         if (settingsButton != null) UIBuilder.SetClick(settingsButton, Open);
@@ -210,10 +185,97 @@ internal static class SettingsMenu
     }
 
     /// <summary>
-    /// [TEMPORARY] In a save, vanilla's Settings stays as it is until R4 (the pause menu's window). Called by
-    /// CoreLifecycle at session start.
+    /// [CHANGED] R4: in a save, the pause menu's Settings works the same way: its button opens the chosen
+    /// menu, vanilla's screen gets Core's two buttons, and the improved window is built on first open (the
+    /// pause menu's canvas is switched off until the game is paused, and a switched-off canvas measures
+    /// nothing). Called by CoreLifecycle at session start.
     /// </summary>
-    internal static void SetupInSave() { }
+    internal static void SetupInSave() => MelonLoader.MelonCoroutines.Start(SetupInSaveNextFrame());
+
+    private static System.Collections.IEnumerator SetupInSaveNextFrame()
+    {
+        yield return null; // the pause menu sets itself up first
+        try
+        {
+            if (!PrepareScene()) yield break;
+            RoutePauseMenuButton(_vanilla!);
+        }
+        catch (Exception e)
+        {
+            Log.Error("Couldn't set up the in-game Settings menus", e);
+        }
+    }
+
+    /// <summary>The scene's vanilla Settings screen, with Core's buttons and open/close handling.</summary>
+    /// <remarks>[CHANGED] Shared by the main menu and the pause menu (R4).</remarks>
+    private static bool PrepareScene()
+    {
+        _window = null; // the previous scene's window went with it
+        _redirectOpens = false;
+        _vanilla = UIPathIndex.FindSettingsScreen();
+        if (_vanilla == null)
+        {
+            Log.Warning("Settings screen not found; Settings left vanilla");
+            return false;
+        }
+
+        AddVanillaExtras(_vanilla);
+        FollowVanillaOpenClose(_vanilla);
+        return true;
+    }
+
+    // ---------- The pause menu's button (R4) ----------
+
+    private static UnityEngine.Events.UnityAction? _openAction; // kept referenced (IL2CPP rule)
+
+    /// <summary>
+    /// Points the button that opens vanilla's Settings at the chooser. The button is found by what it opens
+    /// (its saved click listener targets the Settings screen), not by its path, so a moved or renamed button
+    /// is still found. Only that one listener is switched off; anything else the button does still runs.
+    /// If no such button is found, vanilla's screen is redirected to the improved one as it opens instead.
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] New (R4). [PERFORMANCE] One pass over the scene's buttons, once per session.
+    /// </remarks>
+    private static void RoutePauseMenuButton(SettingsScreen screen)
+    {
+        IntPtr screenPtr = screen.Pointer;
+        IntPtr objectPtr = screen.gameObject.Pointer;
+        IntPtr statePtr = screen.State != null ? screen.State.Pointer : IntPtr.Zero;
+
+        foreach (Button button in UObject.FindObjectsOfType<Button>(true))
+        {
+            Button.ButtonClickedEvent click = button.onClick;
+            if (click == null) continue;
+            for (int i = 0; i < click.GetPersistentEventCount(); i++)
+            {
+                UObject? target = click.GetPersistentTarget(i);
+                if (target == null) continue;
+                IntPtr ptr = target.Pointer;
+                if (ptr != screenPtr && ptr != objectPtr && (statePtr == IntPtr.Zero || ptr != statePtr)) continue;
+
+                click.SetPersistentListenerState(i, UnityEngine.Events.UnityEventCallState.Off);
+                _openAction ??= UIBuilder.ToIl2Cpp<UnityEngine.Events.UnityAction>(new Action(() =>
+                    UIBuilder.RunSafely(Open, "opening Settings")));
+                click.AddListener(_openAction);
+                Log.Debug($"Pause menu Settings button '{button.name}' now opens the chosen menu");
+                return;
+            }
+        }
+
+        // Not found: vanilla opens its screen some other way (from code). Redirect it as it opens.
+        _redirectOpens = true;
+        Log.Debug("No button opens the in-game Settings directly; vanilla's screen will hand over as it opens");
+    }
+
+    /// <summary>
+    /// When true, vanilla's screen opening (with the improved menu chosen) closes again and opens the improved
+    /// window instead: the fallback when the button that opens it couldn't be found.
+    /// </summary>
+    private static bool _redirectOpens;
+
+    /// <summary>Set while Core itself opens vanilla's screen (chosen, or as a fallback), so it isn't redirected.</summary>
+    private static bool _openingVanillaOnPurpose;
 
     // ---------- Opening ----------
 
@@ -245,8 +307,13 @@ internal static class SettingsMenu
 
     private static void OpenVanilla()
     {
-        if (_vanilla != null) _vanilla.Open();
-        else Log.Warning("Vanilla Settings screen is gone; nothing to open");
+        if (_vanilla == null)
+        {
+            Log.Warning("Vanilla Settings screen is gone; nothing to open");
+            return;
+        }
+        _openingVanillaOnPurpose = true; // [CHANGED] R4: not redirected
+        _vanilla.Open();
     }
 
     /// <summary>
@@ -303,7 +370,6 @@ internal static class SettingsMenu
         {
             try
             {
-                if (placement.InSaveOnly) continue; // R4
                 WindowPage page = PageFor(window, tabs, pages, placement);
                 if (placement.Page == CoreSetting) AddCoreSetting(page, placement);
                 else if (placement.Page == Adapter) AddAdapterRow(page, placement.Row, settings, scan);
@@ -603,11 +669,31 @@ internal static class SettingsMenu
     // Called from native code: exceptions must never escape.
     private static void OnVanillaOpened() => UIBuilder.RunSafely(() =>
     {
+        // [CHANGED] R4 fallback: vanilla opened its screen itself, but the improved menu is chosen. Hand over
+        // next frame (not inside vanilla's own open).
+        bool onPurpose = _openingVanillaOnPurpose;
+        _openingVanillaOnPurpose = false;
+        if (_redirectOpens && !onPurpose && _useVanillaMenu?.Value != true)
+        {
+            MelonLoader.MelonCoroutines.Start(HandOverNextFrame());
+            return;
+        }
+
         _cornerPrompt = GameObject.Find(UIPathIndex.MenuCornerPrompt) ?? GameObject.Find(UIPathIndex.InGameCornerPrompt);
         _cornerPromptWasActive = _cornerPrompt != null && _cornerPrompt.activeSelf;
         if (_cornerPromptWasActive) _cornerPrompt!.SetActive(false);
         InputPrompts.Shown(_vanillaExtras);
     }, "vanilla Settings open");
+
+    private static System.Collections.IEnumerator HandOverNextFrame()
+    {
+        yield return null;
+        UIBuilder.RunSafely(() =>
+        {
+            if (_vanilla != null && _vanilla.IsOpen) _vanilla.Close();
+            Open();
+        }, "handing over to the improved Settings");
+    }
 
     private static void OnVanillaClosed() => UIBuilder.RunSafely(() =>
     {

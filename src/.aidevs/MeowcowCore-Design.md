@@ -491,11 +491,10 @@ vanilla skips, the keyboard/gamepad split and the description panel.
 | Tab | Subtab | Rows |
 |---|---|---|
 | **General** | Main | Skip Disclaimer*, Always Skip Tutorial*, Always Skip New Game Intro*, Pause on focus lost, Auto Backup Saves |
-| | Current Game (in a save only) | that save's Seeded Mixing, Console, View Commands |
 | | Misc | Export Player.log, Export Player-prev.log |
 | **Gameplay** | Interface | Interface Scale, Units, Gamepad Pointer Sensitivity |
 | | Camera | Camera Bobbing, FOV, Mouse Camera Sensitivity, Mouse Invert Y, Gamepad Camera Sensitivity, Gamepad Invert Y* |
-| **Graphics** | | Resolution, Active Display, Display Mode, V-Sync, Target Framerate, Quality, Anti-aliasing, SSAO, God Rays (+ Apply) |
+| **Graphics** | | Resolution, Monitor (two or more displays), Display Mode, V-Sync, Target Framerate, Quality, Anti-aliasing, SSAO, God Rays |
 | **Audio** | | all eight volume sliders |
 | **Keybinds** | Mouse & Keyboard | Restore Default Bindings, Sprint Mode, Sneak Mode*, Bindings (two per action*) |
 | | Gamepad | Restore Default Bindings, Sprint Mode*, Sneak Mode*, Bindings |
@@ -585,9 +584,9 @@ the way `SettingRows` follows a Core setting's `Changed`.
 - **Key bindings:** Core builds its own keybind rows in slice 4 (see "How vanilla input works"). Until then
   the Keybinds tab holds Sprint Mode and Sneak Mode, plus a line pointing to Show Vanilla Settings for
   bindings.
-- **Current Game:** its `GameSettingsWindow` script lives on the page. To keep vanilla's screen untouched, the
-  page is cloned (its script runs on the clone) if that script doesn't depend on `SettingsScreen`; otherwise
-  its settings get adapters too. Decided in R4 from vanilla `GameSettingsWindow`.
+- **Current Game: dropped (decided in R4).** Seeded Mixing and Console become playthrough settings in the save
+  system (§10); until then they're reached in a save through Show Vanilla Settings Menu (vanilla's screen
+  keeps its Game page). `GameSettingsWindow` stays on the "not adapted" list.
 
 **Slice order.**
 - **R1. The window — built:** the cloned window and its layout (Core rows live, a temporary line on pages
@@ -614,7 +613,10 @@ the way `SettingRows` follows a Core setting's `Changed`.
   Back or timeout reverts, Submit keeps). Interface Scale shows "%" (sliders take a display format) and uses
   vanilla's constant 7–15 range. Display Mode is looked up in the available list (vanilla selects by enum
   number). Monitor shows only with two or more displays; changing it refreshes the resolution list.
-- **R4. In-game:** the pause menu's window and Current Game.
+- **R4. In-game — written, being tested:** the pause menu's Settings button is found by what it opens (its saved
+  click listener targets the Settings screen) and only that listener is switched off; if no such button is
+  found, vanilla's screen hands over to the improved one as it opens. Vanilla's in-game screen gets the same
+  two buttons; the window is built on first open (the pause canvas is off until paused). No Current Game.
 - Then **slice 4** (Core's keybind rows); the Keybinds pointer line and the "pending" list go.
 
 ### The vanilla skips (`SuiteSettings/VanillaSkips`) — built
@@ -641,11 +643,11 @@ Each uses vanilla's own flow; nothing is patched.
 - **Description panel** (slice 3): a fixed panel on the right of each page shows the description of the
   hovered info icon (mouse) or the selected row (gamepad/keyboard). Info icons, cloned from vanilla's,
   sit beside every option with a description; Auto Backup's note moves into the panel.
-- **General › Commands** (slice 5), between Current Game and Misc, in both menus, replacing View Commands:
+- **General › Commands** (slice 5), before Misc, in both menus, replacing View Commands:
   the command list rebuilt as labels (from the game's command data if simple, else a hand-kept table),
   with **pinned commands** as buttons at the top, enabled only when **host or solo and console on**,
   console counting as off outside a session.
-- **Play mode (§6):** Current Game shown only to host or solo, instead of vanilla's Blocker.
+- ~~Play mode (§6): Current Game shown only to host or solo~~ — retired with Current Game (R4).
 - **Save Manager (§10):** Seeded Mixing and Console become playthrough settings (set at creation or in
   playthrough settings, not changeable mid-game), retiring Current Game.
 - **Keyboard and gamepad fully decoupled:** Sprint Mode, Sneak Mode and Invert Y each get a keyboard and a

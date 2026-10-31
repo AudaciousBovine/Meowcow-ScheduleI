@@ -81,34 +81,6 @@ public sealed class WindowPage
         return new WindowPage(window, label, root, panel, scroll, rows);
     }
 
-    /// <summary>
-    /// An existing page moved under <paramref name="parent"/> as is: its gamepad panel is registered with the
-    /// window again, and its rows are aligned. Hidden until its subtab shows it.
-    /// </summary>
-    /// <remarks>[CHANGED] New, for vanilla pages that must keep their own scripts (Current Game).</remarks>
-    /// <param name="describe">[CHANGED] A row's description by its name, or null for none.</param>
-    internal static WindowPage Adopt(MeowcowWindow window, Transform parent, string label, GameObject root,
-        Func<string, string?>? describe = null)
-    {
-        root.transform.SetParent(parent, false);
-        root.SetActive(false);
-
-        UIContentPanel panel = root.GetComponent<UIContentPanel>();
-        var scrolls = root.GetComponentsInChildren<ScrollRect>(true);
-        ScrollRect? scroll = scrolls.Length > 0 ? scrolls[0] : null;
-        RectTransform rows = scroll != null && scroll.content != null ? scroll.content : root.GetComponent<RectTransform>();
-
-        // [CHANGED] Registered by its tab while showing, like every page (it was detached with vanilla's pages).
-        var page = new WindowPage(window, label, root, panel, scroll, rows);
-        for (int i = 0; i < rows.childCount; i++)
-        {
-            Transform row = rows.GetChild(i);
-            page.AttachDescription(row, null, describe?.Invoke(row.name));
-            page.AlignRow(row);
-        }
-        return page;
-    }
-
     // ---------- Rows ----------
 
     /// <summary>An on/off row. <paramref name="onChanged"/> runs when the player flips it.</summary>

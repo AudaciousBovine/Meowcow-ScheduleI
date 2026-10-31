@@ -155,7 +155,7 @@ public static class CoreLifecycle
             IsInSession = true;
             Log.Info("Session start");
 
-            // [CHANGED] The in-game Settings, reorganised like the main menu's (plus Current Game).
+            // [CHANGED] The in-game Settings: the pause menu's button opens the chosen menu (R4).
             MeowcowCore.Menus.SettingsMenu.SetupInSave();
             MeowcowCore.SuiteSettings.VanillaSkips.OnSessionStart(); // [CHANGED] the new-game intro skips
             MeowcowCore.SuiteSettings.InputSplit.OnSessionStart();   // [CHANGED] Sneak Mode: Hold
