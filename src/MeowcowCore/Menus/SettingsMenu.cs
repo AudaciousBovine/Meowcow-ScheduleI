@@ -1,44 +1,73 @@
 using System;
 using System.Collections.Generic;
 using MeowcowCore.Foundation;
-using Il2CppTMPro;
 using MeowcowCore.SuiteSettingsManager;
 using MeowcowCore.SuiteUI;
 using UnityEngine;
-using PanelChangeEvent = Il2CppScheduleOne.PanelChangeEvent;
-using UIContentPanel = Il2CppScheduleOne.UIContentPanel;
-using UIPanel = Il2CppScheduleOne.UIPanel;
-using UISelectable = Il2CppScheduleOne.UISelectable;
+using UnityEngine.UI;
+using MenuScreen = Il2CppScheduleOne.UI.MainMenu.MenuScreen;
+using SettingsScreen = Il2CppScheduleOne.UI.MainMenu.SettingsScreen;
+using UObject = UnityEngine.Object;
 
 namespace MeowcowCore.Menus;
 
 /// <summary>
-/// Vanilla's Settings menu, reorganised (design §9): vanilla's real screen becomes a Meowcow window, and
-/// its own rows are moved into the suite's tabs and subtabs. Moved, not copied: each row keeps its own
-/// script, which keeps applying vanilla's setting exactly as before.
+/// The improved Settings menu (design §9, "Rebuilt with adapters"): a Core window with Core's own rows, in
+/// the suite's layout. Vanilla's own Settings screen is left untouched, and a remembered toggle switches
+/// between the two.
 /// </summary>
 /// <remarks>
-/// [CHANGED] New (vanilla Settings rework, slice 1: main menu, vanilla's rows only). The Game tab (in a
-/// save), Core's new settings and the keybind rework come in later slices.
-/// A row that isn't found (e.g. after a game update) is skipped with a warning; the rest still move.
-/// [PERFORMANCE] About 40 reparents once per menu load; nothing per frame of ours.
+/// [CHANGED] Rewritten for the adapter rebuild (R1). Was: vanilla's real screen reorganised in place, with
+/// vanilla's rows moved into it, which kept inheriting vanilla state (shared screen, hidden-page navigation).
+/// R1 builds the window, routes the main menu's Settings button and adds the toggle; vanilla's settings
+/// get adapters in R2, Graphics and Display in R3, the pause menu in R4.
+/// [PERFORMANCE] At menu load: one button rewire and one small button added to vanilla's screen. The window
+/// is built on first open per scene (one clone, like Meowcow Settings). Nothing per frame.
 /// </remarks>
 internal static class SettingsMenu
 {
     private static readonly MeowcowLogger Log = CoreMod.Log.Tagged("Settings");
 
+    private const string WindowName = "MeowcowImprovedSettings";
+    private const string Title = "Settings";
+    private const string ShowVanillaLabel = "Show Vanilla Settings Menu";
+    private const string ShowImprovedLabel = "Show Improved Settings Menu";
+    private const string ShowImprovedName = MeowcowWindow.CoreAdditionPrefix + "ShowImprovedSettings";
+    private const float OutsideGap = 10f;      // between the frame's bottom edge and the buttons below it
+    private const float SmallButtonHeight = 40f;
+    private const float BackWidth = 140f;      // as the improved window's Back button
+    private const string BackName = "Back";
+
+    // [TEMPORARY] R1 only: shown on pages whose vanilla settings arrive in R2/R3.
+    private const string PendingText = "Vanilla settings arrive in the next update";
+
     /// <summary>All of a vanilla page's rows not placed elsewhere, in their order.</summary>
     private const string RestOfPage = "*";
 
-    /// <summary>The vanilla page itself, moved whole as a subtab (for pages run by a script on the page).</summary>
+    /// <summary>The vanilla page itself (Current Game, in a save; R4).</summary>
     private const string WholePage = "#page";
 
-    /// <summary>As a page name: a Core setting (by key) rather than a vanilla row, shown with its own row.</summary>
+    /// <summary>As a page name: a Core setting (by key) rather than a vanilla row.</summary>
     private const string CoreSetting = "@core";
 
+    /// <summary>Key of the remembered choice: true opens vanilla's own Settings screen.</summary>
+    internal const string UseVanillaMenuKey = "UseVanillaSettingsMenu";
+
+    private static ToggleSetting? _useVanillaMenu;
+    private static MeowcowWindow? _window;
+    private static SettingsScreen? _vanilla;
+    private static Transform? _vanillaExtras;       // the holder of Core's buttons on vanilla's screen
+    private static IntPtr _hookedScreen;            // the vanilla screen whose open/close is followed
+    private static Il2CppSystem.Action? _onVanillaOpened; // kept referenced (IL2CPP rule)
+    private static Il2CppSystem.Action? _onVanillaClosed;
+    private static GameObject? _cornerPrompt;
+    private static bool _cornerPromptWasActive;
+
     /// <summary>
-    /// Where each vanilla row goes: vanilla page, row name, our tab, our subtab (null for a tab with one
-    /// page), and an optional new label. Tabs and subtabs appear in the order they first appear here.
+    /// Where each setting goes: vanilla page and row name (or a Core setting), our tab, our subtab (null for a
+    /// tab with one page), and an optional new label. Tabs and subtabs appear in the order they first appear
+    /// here. [CHANGED] R1: only Core settings get rows; vanilla entries get adapters in R2 (their page and row
+    /// names stay: R2's detection checks vanilla's rows against them).
     /// </summary>
     /// <remarks>
     /// The one place that knows vanilla's row names (instead of UIPathIndex), since the names only mean
@@ -109,225 +138,146 @@ internal static class SettingsMenu
         ["Console"] = "Enables the developer console in this save.",
     };
 
-    /// <summary>Vanilla rows that aren't moved anywhere: the "Settings" headers above the moved settings.</summary>
-    private static readonly HashSet<string> LeftBehind = new(StringComparer.Ordinal) { "SettingsLabel" };
-
     /// <param name="InSaveOnly">The vanilla page only exists in a save; its absence elsewhere is expected.</param>
     /// <param name="Description">[CHANGED] Shown in the page's description panel (with an info icon).</param>
     private sealed record Placement(string Page, string Row, string Tab, string? Subtab, string? Label = null,
         bool InSaveOnly = false, string? Description = null);
 
+
+    // ---------- Setup ----------
+
     /// <summary>
-    /// Reorganises this scene's Settings screen. Called once per menu load, before the player can open it.
-    /// Keeps an untouched copy first, which Meowcow Settings is cloned from.
+    /// Declares the remembered choice on Core. Not shown in either menu: the toggle buttons are its control.
     /// </summary>
-    /// <returns>The window, or null if the screen was left vanilla.</returns>
-    internal static MeowcowWindow? Setup()
+    /// <remarks>
+    /// [CHANGED] New (R1). Marked as a vanilla-Settings setting so Meowcow Settings skips it, and not in the
+    /// layout table, so the improved menu doesn't show it as a row either.
+    /// </remarks>
+    internal static void Declare(ModuleSettings core)
     {
-        var screen = UIPathIndex.FindSettingsScreen();
-        if (screen == null)
+        _useVanillaMenu = core.Subtab("Vanilla").Toggle(UseVanillaMenuKey, ShowVanillaLabel, false,
+            "Opens the game's own Settings menu instead of the improved one.").ShownInVanillaSettings();
+    }
+
+    /// <summary>
+    /// Called once per main menu load: the main menu's Settings button opens the chosen menu, and vanilla's
+    /// screen gets its way back to the improved one. The window itself is built on first open.
+    /// </summary>
+    /// <param name="settingsButton">The main menu's Settings button.</param>
+    internal static void Setup(Button? settingsButton)
+    {
+        _window = null; // the previous scene's window went with it
+        _vanilla = UIPathIndex.FindSettingsScreen();
+        if (_vanilla == null)
         {
-            Log.Warning("Settings screen not found; left vanilla");
-            return null;
+            Log.Warning("Settings screen not found; Settings left vanilla");
+            return;
         }
 
-        MeowcowWindow.CapturePristineSettings(); // before anything changes
-        MeowcowWindow? window = MeowcowWindow.AdoptSettings(screen);
-        if (window?.VanillaPages == null) return null;
+        AddVanillaExtras(_vanilla);
+        FollowVanillaOpenClose(_vanilla);
 
-        List<UISelectable> gamepadControls = CollectGamepadControls(window.VanillaPages);
+        // [CHANGED] Replaces vanilla's wiring (Settings → SettingsScreen.Open) with the chooser.
+        if (settingsButton != null) UIBuilder.SetClick(settingsButton, Open);
+        else Log.Warning("Main menu Settings button not given; it opens vanilla's Settings");
+    }
+
+    /// <summary>
+    /// [TEMPORARY] In a save, vanilla's Settings stays as it is until R4 (the pause menu's window). Called by
+    /// CoreLifecycle at session start.
+    /// </summary>
+    internal static void SetupInSave() { }
+
+    // ---------- Opening ----------
+
+    /// <summary>
+    /// Opens the chosen menu. If the improved window can't be built, vanilla's opens instead (design §14:
+    /// a menu Core can't build falls back to vanilla).
+    /// </summary>
+    internal static void Open()
+    {
+        if (_useVanillaMenu?.Value == true)
+        {
+            OpenVanilla();
+            return;
+        }
+
+        if (_window == null || !_window.IsAlive)
+        {
+            _window = Build();
+            if (_window != null) _window.Closed += MeowcowSettings.FlushAll; // Core rows save pending changes
+        }
+
+        if (_window != null) _window.Open();
+        else OpenVanilla();
+    }
+
+    private static void OpenVanilla()
+    {
+        if (_vanilla != null) _vanilla.Open();
+        else Log.Warning("Vanilla Settings screen is gone; nothing to open");
+    }
+
+    /// <summary>
+    /// Switches menus and remembers the choice. The open one closes first, so Escape from the other still
+    /// returns to where Settings was opened from.
+    /// </summary>
+    private static void SwitchTo(bool vanilla)
+    {
+        if (_useVanillaMenu != null) _useVanillaMenu.Value = vanilla;
+        MenuScreen? current = MenuScreen.Current;
+        if (current != null) current.Close();
+        Open();
+    }
+
+    // Static handlers (not lambdas): UIBuilder.SetClick keeps one converted handler per method.
+    private static void ShowVanilla() => SwitchTo(vanilla: true);
+    private static void ShowImproved() => SwitchTo(vanilla: false);
+
+    // ---------- The window ----------
+
+    /// <summary>The improved window: its tabs and pages from the layout table, Core's rows, the toggle.</summary>
+    private static MeowcowWindow? Build()
+    {
+        MeowcowWindow? window = MeowcowWindow.CreateFromSettings(WindowName, Title);
+        if (window == null) return null;
+
         var tabs = new Dictionary<string, WindowTab>(StringComparer.Ordinal);
         var pages = new Dictionary<string, WindowPage>(StringComparer.Ordinal);
-        var moved = new HashSet<IntPtr>();
-        var movedRows = new List<(WindowPage page, Transform row)>();
-        int count = 0;
+        var pending = new HashSet<WindowPage>();
 
         foreach (Placement placement in Layout)
         {
             try
             {
-                if (placement.Page == CoreSetting)
-                {
-                    AddCoreSetting(window, tabs, pages, placement);
-                    continue;
-                }
-
-                Transform? pageRoot = window.VanillaPages.Find(placement.Page);
-                if (pageRoot == null)
-                {
-                    if (!placement.InSaveOnly) Log.Warning($"Vanilla page '{placement.Page}' not found; its rows aren't shown");
-                    continue;
-                }
-
-                if (placement.Row == WholePage)
-                {
-                    AdoptWholePage(window, tabs, pages, placement, pageRoot);
-                    continue;
-                }
-
+                if (placement.InSaveOnly) continue; // R4
                 WindowPage page = PageFor(window, tabs, pages, placement);
-                foreach (Transform row in RowsFor(pageRoot, placement, moved))
-                {
-                    page.AddExistingRow(row, gamepadControls, placement.Label, placement.Description);
-                    moved.Add(row.Pointer);
-                    movedRows.Add((page, row));
-                    count++;
-                }
+                if (placement.Page == CoreSetting) AddCoreSetting(page, placement);
+                else pending.Add(page); // [TEMPORARY] R1: vanilla settings get adapters in R2/R3
             }
             catch (Exception e)
             {
-                Log.Error($"Couldn't move '{placement.Row}' from '{placement.Page}'", e);
+                Log.Error($"Couldn't place '{placement.Row}'", e);
             }
         }
 
-        TouchUpKeybinds(movedRows);
-        Log.Debug($"Settings reorganised: {count} rows moved");
-        WatchPanelChanges(window); // [TEMPORARY]
+        foreach (WindowPage page in pending) page.AddText(PendingText); // [TEMPORARY]
+
+        window.AddFooterButton("ShowVanilla", ShowVanillaLabel, ShowVanilla);
         return window;
     }
 
-    // ---------- Keybinds touch-ups ----------
-    // [CHANGED] New (Evelyna's Keybinds layout). Each step is independent and skipped if its row is missing.
-
-    private const string RestoreDefaultText = "Restore Default Bindings";
-    private const string CannotBeRebound = "(Cannot be rebound)";
-    private const float ButtonTextPadding = 40f; // room either side of the Restore Default text
-    private const float ButtonSpaceAbove = 20f;  // [CHANGED] between the subtab strip and Restore Default
-    private const float ButtonSpaceBelow = 8f;
-
-    /// <summary>
-    /// The bindings header keeps its "Bindings" title where the bindings start, and its button, renamed
-    /// "Restore Default Bindings", moves to its own row at the top of the page, at the label column's start;
-    /// the mouse-button row is split into one row per button, laid out like binding rows; and labels marked
-    /// "(Cannot be rebound)" put that note on its own line.
-    /// </summary>
-    private static void TouchUpKeybinds(List<(WindowPage page, Transform row)> rows)
+    private static void AddCoreSetting(WindowPage page, Placement placement)
     {
-        foreach ((WindowPage page, Transform row) in rows)
+        Setting? setting = MeowcowSettings.Core?.Find(placement.Row);
+        if (setting == null)
         {
-            try
-            {
-                if (row.name == UIPathIndex.BindingHeader) TouchUpBindingHeader(row);
-                else if (row.name == UIPathIndex.MouseInfoRow) SplitMouseRow(page, row);
-                else BreakCannotBeRebound(row);
-            }
-            catch (Exception e)
-            {
-                Log.Error($"Couldn't adjust '{row.name}'", e);
-            }
+            Log.Warning($"Core setting '{placement.Row}' not found; not shown");
+            return;
         }
+        SettingRows.Add(page, setting);
     }
 
-    /// <summary>
-    /// The header keeps its "Bindings" title. Its button is renamed, widened to fit, and moved to a row of its
-    /// own at the top of the page, with some space above it, at the start of the label column.
-    /// </summary>
-    /// <remarks>
-    /// [CHANGED] The title stays (was: removed) and the button gets its own row (was: the header moved to the
-    /// top). The button stays on the page's gamepad list: it was registered while still in the header.
-    /// </remarks>
-    private static void TouchUpBindingHeader(Transform header)
-    {
-        RectTransform? button = header.Find(UIPathIndex.RestoreDefaultButton)?.TryCast<RectTransform>();
-        if (button == null || header.parent == null) return;
-
-        var texts = button.GetComponentsInChildren<TMP_Text>(true);
-        if (texts.Length > 0)
-        {
-            texts[0].text = RestoreDefaultText;
-            texts[0].enableWordWrapping = false;
-            float wanted = texts[0].preferredWidth + ButtonTextPadding;
-            if (button.rect.width < wanted) button.sizeDelta += new Vector2(wanted - button.rect.width, 0f);
-        }
-
-        // A row of its own, first on the page: the button's height plus the space around it.
-        var row = new GameObject("RestoreDefaultRow");
-        RectTransform rowRect = row.AddComponent<RectTransform>();
-        row.transform.SetParent(header.parent, false);
-        row.transform.SetSiblingIndex(0);
-        RectTransform headerRect = header.TryCast<RectTransform>()!;
-        rowRect.sizeDelta = new Vector2(headerRect.rect.width, button.rect.height + ButtonSpaceAbove + ButtonSpaceBelow);
-
-        button.SetParent(row.transform, false);
-        button.anchorMin = new Vector2(button.anchorMin.x, 0.5f);
-        button.anchorMax = new Vector2(button.anchorMax.x, 0.5f);
-        button.pivot = new Vector2(button.pivot.x, 0.5f);
-        button.anchoredPosition = new Vector2(button.anchoredPosition.x, -(ButtonSpaceAbove - ButtonSpaceBelow) / 2f);
-        WindowPage.PlaceAtLabelColumnStart(row.transform, button);
-    }
-
-    /// <summary>
-    /// [TEMPORARY] Logs every gamepad panel change in the Settings window, to find where selection goes when it
-    /// disappears at the ends of lists. Remove once the edge fix is in.
-    /// </summary>
-    private static void WatchPanelChanges(MeowcowWindow window)
-    {
-        var uiScreen = window.Screen.uiScreen;
-        if (uiScreen == null) return;
-        uiScreen.SubscribeToPanelChange(window.Keep(UIBuilder.ToIl2Cpp<PanelChangeEvent>(
-            new Action<UIPanel, UIPanel>((from, to) => UIBuilder.RunSafely(() =>
-                Log.Debug($"Gamepad panel: {Describe(from)} -> {Describe(to)}"), "panel watch")))));
-    }
-
-    private static string Describe(UIPanel? panel)
-    {
-        if (panel == null) return "none";
-        Transform? parent = panel.transform.parent;
-        return $"'{panel.name}' ({panel.GetIl2CppType().Name}, under '{(parent != null ? parent.name : "-")}', " +
-               $"{panel.selectables.Count} controls, visible {panel.IsPanelVisible()})";
-    }
-
-    /// <summary>
-    /// Vanilla shows both mouse buttons side by side in one row. Each becomes its own row, the same size as
-    /// the original, with its text in the label column and its icon at the control column.
-    /// </summary>
-    private static void SplitMouseRow(WindowPage page, Transform mouseRow)
-    {
-        RectTransform rowRect = mouseRow.TryCast<RectTransform>()!;
-        Vector2 size = rowRect.rect.size;
-        int index = mouseRow.GetSiblingIndex();
-
-        var buttons = new List<Transform>();
-        for (int i = 0; i < mouseRow.childCount; i++) buttons.Add(mouseRow.GetChild(i));
-
-        foreach (Transform button in buttons)
-        {
-            var texts = button.GetComponentsInChildren<TMP_Text>(true);
-            if (texts.Length == 0) continue;
-            TMP_Text label = texts[0];
-
-            // The parts that aren't the label (the icon and its shade) are what goes in the control column.
-            var controls = new List<RectTransform>();
-            for (int i = 0; i < button.childCount; i++)
-            {
-                Transform part = button.GetChild(i);
-                if (label.transform == part || label.transform.IsChildOf(part)) continue;
-                RectTransform? partRect = part.TryCast<RectTransform>();
-                if (partRect != null) controls.Add(partRect);
-            }
-
-            RectTransform buttonRect = button.TryCast<RectTransform>()!;
-            button.SetParent(mouseRow.parent, false);
-            button.SetSiblingIndex(++index);
-            buttonRect.sizeDelta = size;
-            page.AlignCustomRow(button, label, controls);
-        }
-
-        mouseRow.gameObject.SetActive(false); // empty now; hidden rather than destroyed
-    }
-
-    /// <summary>"Select (Cannot be rebound)" → "Select" with "(Cannot be rebound)" on the next line.</summary>
-    private static void BreakCannotBeRebound(Transform row)
-    {
-        foreach (TMP_Text text in row.GetComponentsInChildren<TMP_Text>(true))
-        {
-            string current = text.text;
-            int at = current.IndexOf(" " + CannotBeRebound, StringComparison.Ordinal);
-            if (at >= 0) text.text = current.Substring(0, at) + "\n" + CannotBeRebound;
-        }
-    }
-
-    /// <summary>The page for a placement, creating its tab and subtab the first time.</summary>
     private static WindowPage PageFor(MeowcowWindow window, Dictionary<string, WindowTab> tabs,
         Dictionary<string, WindowPage> pages, Placement placement)
     {
@@ -352,161 +302,130 @@ internal static class SettingsMenu
         return tab;
     }
 
-    /// <summary>A Core setting's row, bound both ways, like Meowcow Settings' rows.</summary>
-    private static void AddCoreSetting(MeowcowWindow window, Dictionary<string, WindowTab> tabs,
-        Dictionary<string, WindowPage> pages, Placement placement)
-    {
-        Setting? setting = MeowcowSettings.Core?.Find(placement.Row);
-        if (setting == null)
-        {
-            Log.Warning($"Core setting '{placement.Row}' not found; not shown");
-            return;
-        }
-        SettingRows.Add(PageFor(window, tabs, pages, placement), setting);
-    }
-
-    /// <summary>A whole vanilla page becomes a subtab: its panel (with its scripts) moves into the tab.</summary>
-    private static void AdoptWholePage(MeowcowWindow window, Dictionary<string, WindowTab> tabs,
-        Dictionary<string, WindowPage> pages, Placement placement, Transform pageRoot)
-    {
-        var panels = pageRoot.GetComponentsInChildren<UIContentPanel>(true);
-        if (panels.Length == 0)
-        {
-            Log.Warning($"Vanilla page '{placement.Page}' has no panel to move");
-            return;
-        }
-
-        WindowTab tab = TabFor(window, tabs, placement);
-        string subtab = placement.Subtab ?? placement.Tab;
-        pages[placement.Tab + "/" + subtab] = tab.AddExistingPage(subtab, panels[0].gameObject,
-            rowName => WholePageDescriptions.TryGetValue(rowName, out string? d) ? d : null);
-    }
-
-    private static Il2CppSystem.Action? _firstOpen; // kept referenced (IL2CPP rule)
-    private static Il2CppScheduleOne.UI.MainMenu.SettingsScreen? _waitingScreen;
+    // ---------- Vanilla's screen ----------
 
     /// <summary>
-    /// In a save, the Settings screen is reorganised the first time it opens, not when the session starts.
-    /// Called by CoreLifecycle at session start.
+    /// Core's additions to vanilla's Settings screen, just outside its frame: Back below the bottom-left
+    /// corner, "Show Improved Settings Menu" below the bottom-right one. The only changes Core makes to
+    /// vanilla's screen. Named with the Core-addition prefix, so windows cloned from the screen leave them out.
     /// </summary>
     /// <remarks>
-    /// [CHANGED] Was: one frame after the session started. The pause menu's canvas is switched off until the
-    /// game is paused, and a switched-off canvas has no size, so every row was measured as zero-sized and
-    /// aligned wrongly (labels gone, rows on top of each other). At first open the canvas is on.
-    /// [PERFORMANCE] The reorganising (about 40 reparents) happens on that first open, once per session.
+    /// [CHANGED] Back added, and both buttons moved outside the frame (were: Show Improved inside the
+    /// frame's corner). A holder that's the screen's last child, with the frame's exact rect, holds them: drawn
+    /// on top (the frame is the screen's first child, so its own children were covered and lost clicks) and
+    /// placed relative to the frame wherever it sits.
+    /// [PERFORMANCE] Two clones and one empty object, once per menu load.
     /// </remarks>
-    internal static void SetupInSave() => MelonLoader.MelonCoroutines.Start(WaitForFirstOpen());
-
-    private static System.Collections.IEnumerator WaitForFirstOpen()
+    private static void AddVanillaExtras(SettingsScreen screen)
     {
-        yield return null; // the pause menu sets itself up first
         try
         {
-            var screen = UIPathIndex.FindSettingsScreen();
-            if (screen == null)
+            Transform root = screen.transform;
+            Transform? existing = root.Find(ShowImprovedName);
+            if (existing != null)
             {
-                Log.Warning("In-game Settings screen not found; left vanilla");
-                yield break;
+                _vanillaExtras = existing; // already added this scene
+                return;
             }
-            _waitingScreen = screen;
-            _firstOpen ??= Il2CppInterop.Runtime.DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(new Action(OnFirstOpen));
-            screen.State.add_OnBecomeTopSibling(_firstOpen);
+
+            // The holder takes the frame's rect (same parent, so same anchors and offsets mean the same place).
+            var holder = new GameObject(ShowImprovedName);
+            RectTransform holderRect = holder.AddComponent<RectTransform>();
+            holderRect.SetParent(root, false);
+            if (root.Find(UIPathIndex.WindowBackground) is RectTransform frame)
+            {
+                holderRect.anchorMin = frame.anchorMin;
+                holderRect.anchorMax = frame.anchorMax;
+                holderRect.pivot = frame.pivot;
+                holderRect.anchoredPosition = frame.anchoredPosition;
+                holderRect.sizeDelta = frame.sizeDelta;
+            }
+            else
+            {
+                MeowcowWindow.SetRect(holderRect, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            }
+            holder.transform.SetAsLastSibling(); // drawn over everything else on the screen
+            _vanillaExtras = holderRect;
+
+            // Show Improved Settings Menu: below the frame, right edges lined up.
+            GameObject? show = UITemplateRegistry.Create(UITemplateRegistry.SmallButton, holderRect, "ShowImproved");
+            if (show != null)
+            {
+                float width = UITemplateRegistry.FitToLabel(show, ShowImprovedLabel);
+                PlaceBelowFrame(show.GetComponent<RectTransform>(), right: true, width);
+                UIBuilder.SetClick(show.GetComponent<Button>(), ShowImproved);
+            }
+            else
+            {
+                Log.Warning("No small button in the registry; vanilla Settings has no way back to the improved menu");
+            }
+
+            // Back: below the frame, left edges lined up. The registry's Back (live key prompt).
+            GameObject? back = UITemplateRegistry.Create(UITemplateRegistry.BackButton, holderRect, BackName);
+            if (back != null)
+            {
+                PlaceBelowFrame(back.GetComponent<RectTransform>(), right: false, BackWidth);
+                UIBuilder.SetClick(back.GetComponent<Button>(), CloseCurrent);
+            }
         }
         catch (Exception e)
         {
-            Log.Error("Couldn't prepare the in-game Settings", e);
+            Log.Error("Couldn't add Core's buttons to vanilla Settings", e);
         }
     }
 
-    /// <summary>Called from native code (the screen opening): exceptions must never escape.</summary>
-    private static void OnFirstOpen()
+    /// <summary>Just below the holder's (the frame's) bottom edge, lined up with its left or right edge.</summary>
+    private static void PlaceBelowFrame(RectTransform rect, bool right, float width)
     {
-        try
-        {
-            var screen = _waitingScreen;
-            _waitingScreen = null;
-            if (screen == null) return;
-            screen.State.remove_OnBecomeTopSibling(_firstOpen);
-
-            // The window's own open handling was added during this open, so it runs from the next one: this
-            // first time, it's run here.
-            Setup()?.NotifyOpened();
-        }
-        catch (Exception e)
-        {
-            Log.Error("Couldn't reorganise the in-game Settings", e);
-        }
+        float x = right ? 1f : 0f;
+        rect.anchorMin = new Vector2(x, 0f);
+        rect.anchorMax = new Vector2(x, 0f);
+        rect.pivot = new Vector2(x, 1f);                // hangs down from the frame's edge
+        rect.sizeDelta = new Vector2(width, SmallButtonHeight);
+        rect.anchoredPosition = new Vector2(0f, -OutsideGap);
     }
 
-    /// <summary>The rows a placement moves: one named row, or every remaining row of the page.</summary>
-    private static List<Transform> RowsFor(Transform pageRoot, Placement placement, HashSet<IntPtr> moved)
+    /// <summary>Back: closes whichever screen is open (it can only be clicked on the open one).</summary>
+    private static void CloseCurrent()
     {
-        var rows = new List<Transform>();
-        if (placement.Row != RestOfPage)
-        {
-            Transform? row = FindDeep(pageRoot, placement.Row);
-            if (row == null) Log.Warning($"Vanilla row '{placement.Row}' not found in '{placement.Page}'; not shown");
-            else if (!moved.Contains(row.Pointer)) rows.Add(row);
-            return rows;
-        }
-
-        Transform? container = RowsContainer(pageRoot);
-        if (container == null)
-        {
-            Log.Warning($"Vanilla page '{placement.Page}' has no rows to move");
-            return rows;
-        }
-        for (int i = 0; i < container.childCount; i++)
-        {
-            Transform row = container.GetChild(i);
-            if (!moved.Contains(row.Pointer) && !LeftBehind.Contains(row.name)) rows.Add(row);
-        }
-        return rows;
-    }
-
-    /// <summary>Where a vanilla page's rows sit: its scroll view's content, or the page panel itself.</summary>
-    private static Transform? RowsContainer(Transform pageRoot)
-    {
-        var scrolls = pageRoot.GetComponentsInChildren<UnityEngine.UI.ScrollRect>(true);
-        foreach (var scroll in scrolls)
-        {
-            // A dropdown's item list is also a scroll view; the page's own comes first, but be sure.
-            if (scroll.name != UIPathIndex.DropdownTemplate && scroll.content != null) return scroll.content;
-        }
-        var panels = pageRoot.GetComponentsInChildren<UIContentPanel>(true);
-        return panels.Length > 0 ? panels[0].transform : null;
-    }
-
-    /// <summary>The nearest descendant with this name (breadth-first, so a row wins over anything inside rows).</summary>
-    private static Transform? FindDeep(Transform root, string name)
-    {
-        var queue = new Queue<Transform>();
-        for (int i = 0; i < root.childCount; i++) queue.Enqueue(root.GetChild(i));
-        while (queue.Count > 0)
-        {
-            Transform t = queue.Dequeue();
-            if (t.name == name) return t;
-            for (int i = 0; i < t.childCount; i++) queue.Enqueue(t.GetChild(i));
-        }
-        return null;
+        MenuScreen? current = MenuScreen.Current;
+        if (current != null) current.Close();
     }
 
     /// <summary>
-    /// Every control vanilla's pages had on their gamepad lists, in order, before the rows move. Each moved
-    /// row then registers exactly the controls it had (binding buttons, Restore Default, dropdowns...).
+    /// Follows vanilla's screen opening and closing, as the improved window does for itself: vanilla's corner
+    /// "Back" prompt is hidden while open (Core's Back replaces it), and Back's key cap follows the device.
     /// </summary>
-    private static List<UISelectable> CollectGamepadControls(Transform vanillaPages)
+    /// <remarks>
+    /// [CHANGED] New. Hooked once per scene. Mirrors MeowcowWindow's own open/close handling; if more screens
+    /// need it, it moves into a shared helper.
+    /// [SOURCE] MeowcowWindow.HookOpenClose (the state's OnBecomeTopSibling / OnNoLongerTopSibling).
+    /// [PERFORMANCE] Two events, no per-frame work.
+    /// </remarks>
+    private static void FollowVanillaOpenClose(SettingsScreen screen)
     {
-        var controls = new List<UISelectable>();
-        foreach (UIContentPanel panel in vanillaPages.GetComponentsInChildren<UIContentPanel>(true))
-        {
-            if (panel.name == UIPathIndex.DropdownTemplate) continue;
-            var list = panel.selectables;
-            for (int i = 0; i < list.Count; i++)
-            {
-                if (list[i] != null) controls.Add(list[i]);
-            }
-        }
-        return controls;
+        if (_hookedScreen == screen.Pointer || screen.State == null) return;
+        _onVanillaOpened ??= UIBuilder.ToIl2Cpp<Il2CppSystem.Action>(new Action(OnVanillaOpened));
+        _onVanillaClosed ??= UIBuilder.ToIl2Cpp<Il2CppSystem.Action>(new Action(OnVanillaClosed));
+        screen.State.add_OnBecomeTopSibling(_onVanillaOpened);
+        screen.State.add_OnNoLongerTopSibling(_onVanillaClosed);
+        _hookedScreen = screen.Pointer;
     }
+
+    // Called from native code: exceptions must never escape.
+    private static void OnVanillaOpened() => UIBuilder.RunSafely(() =>
+    {
+        _cornerPrompt = GameObject.Find(UIPathIndex.MenuCornerPrompt) ?? GameObject.Find(UIPathIndex.InGameCornerPrompt);
+        _cornerPromptWasActive = _cornerPrompt != null && _cornerPrompt.activeSelf;
+        if (_cornerPromptWasActive) _cornerPrompt!.SetActive(false);
+        InputPrompts.Shown(_vanillaExtras);
+    }, "vanilla Settings open");
+
+    private static void OnVanillaClosed() => UIBuilder.RunSafely(() =>
+    {
+        InputPrompts.Hidden(_vanillaExtras);
+        // Only shown again if it was showing before, so a prompt vanilla hid stays hidden.
+        if (_cornerPromptWasActive && _cornerPrompt != null) _cornerPrompt.SetActive(true);
+        _cornerPromptWasActive = false;
+    }, "vanilla Settings close");
 }

@@ -5,6 +5,7 @@ using MelonLoader;
 using MeowcowCore.Foundation;
 using MeowcowCore.SuiteUI;
 using UnityEngine;
+using UnityEngine.UI;
 using MenuScreen = Il2CppScheduleOne.UI.MainMenu.MenuScreen;
 
 namespace MeowcowCore.Menus;
@@ -50,17 +51,18 @@ public static class MainMenu
         AddSuiteTag(home.transform);
 
         // [CHANGED] The template registry's pieces first (they're made from this menu's vanilla parts, and
-        // windows use them), then vanilla's Settings, reorganised (before the player can open it).
+        // windows use them), then the Settings button pointed at the chosen Settings menu.
         try
         {
             UITemplateRegistry.CaptureMissing();
             SuiteSettings.VanillaSkips.ApplyTutorial(); // [CHANGED] Always Skip Tutorial on the New Game screen
             SuiteSettings.InputSplit.Start();           // [CHANGED] keyboard/gamepad input values
-            SettingsMenu.Setup();
+            Transform? settings = home.transform.Find(UIPathIndex.MainMenuList)?.Find(UIPathIndex.MainMenuSettingsButton);
+            SettingsMenu.Setup(settings != null ? settings.GetComponent<Button>() : null); // [CHANGED] R1
         }
         catch (Exception e)
         {
-            Log.Error("Couldn't reorganise vanilla Settings", e);
+            Log.Error("Couldn't set up the Settings menus", e);
         }
     }
 

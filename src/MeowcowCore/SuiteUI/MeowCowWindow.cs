@@ -395,6 +395,7 @@ public sealed class MeowcowWindow
             staging.SetActive(false);
             clone = UObject.Instantiate(source.gameObject, staging.transform);
             clone.name = objectName;
+            RemoveCoreAdditions(clone.transform); // [CHANGED] e.g. the "Show Improved Settings Menu" button
 
             UIBuilder.DumpHierarchy(clone.transform, Log); // debug only: how the shell is built
 
@@ -980,6 +981,110 @@ public sealed class MeowcowWindow
         Vector2 room = (parent.rect.size - _root.rect.size) / 2f;
         room = Vector2.Max(room, Vector2.zero);
         return new Vector2(Mathf.Clamp(position.x, -room.x, room.x), Mathf.Clamp(position.y, -room.y, room.y));
+    }
+
+    /// <summary>
+    /// Core's own additions to a vanilla screen (named with <see cref="CoreAdditionPrefix"/>) aren't part of
+    /// a window cloned from it.
+    /// </summary>
+    /// <remarks>[CHANGED] New (Settings rebuild R1). [PERFORMANCE] One pass over the clone's objects, per build.</remarks>
+    private static void RemoveCoreAdditions(Transform clone)
+    {
+        foreach (Transform t in clone.GetComponentsInChildren<Transform>(true))
+        {
+            if (t == null) continue; // inside an addition already removed
+            if (t != clone && t.name.StartsWith(CoreAdditionPrefix, StringComparison.Ordinal))
+                UObject.DestroyImmediate(t.gameObject);
+        }
+    }
+
+    /// <summary>
+    /// Names of objects Core adds to vanilla screens start with this, so windows cloned from those screens
+    /// leave them out.
+    /// </summary>
+    public const string CoreAdditionPrefix = "Meowcow";
+
+    // ---------- Footer ----------
+    // [CHANGED] New (Settings rebuild R1): buttons on the footer's right, and a notice line between them and
+    // Back. [PERFORMANCE] Built on request, once; nothing per frame.
+
+    private const float FooterSpacing = 10f;
+    private const float NoticeSizeRatio = 0.5f; // of the title's font size
+    private float _footerRightUsed;             // width taken on the right by footer buttons so far
+    private TMP_Text? _footerNotice;
+
+    /// <summary>
+    /// Adds a small button to the footer's right side (the first at the corner, later ones to its left).
+    /// Null if the registry has no small button yet.
+    /// </summary>
+    /// <remarks>
+    /// Reached by mouse; not on the gamepad list (like Back, which uses Escape/B instead).
+    /// </remarks>
+    public Button? AddFooterButton(string name, string label, Action onClick)
+    {
+        Transform frame = (Transform?)_root ?? Screen.transform;
+        GameObject? go = UITemplateRegistry.Create(UITemplateRegistry.SmallButton, frame, name);
+        if (go == null)
+        {
+            Log.Debug($"No small button in the registry; footer button '{label}' not shown");
+            return null;
+        }
+
+        float width = UITemplateRegistry.FitToLabel(go, label);
+        RectTransform rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(1f, 0f);
+        rect.anchorMax = new Vector2(1f, 0f);
+        rect.pivot = new Vector2(1f, 0f);
+        rect.sizeDelta = new Vector2(width, BackHeight);
+        rect.anchoredPosition = new Vector2(-(Margin + _footerRightUsed), (FooterHeight - BackHeight) / 2f);
+        _footerRightUsed += width + FooterSpacing;
+
+        Button button = go.GetComponent<Button>();
+        UIBuilder.SetClick(button, onClick);
+        LayOutFooterNotice();
+        return button;
+    }
+
+    /// <summary>
+    /// Shows a line of text in the footer, between Back and the footer buttons (e.g. a warning), or hides it
+    /// when <paramref name="text"/> is null or empty.
+    /// </summary>
+    public void SetFooterNotice(string? text, Color color)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            if (_footerNotice != null) _footerNotice.gameObject.SetActive(false);
+            return;
+        }
+
+        if (_footerNotice == null)
+        {
+            if (Title == null) return;
+            Transform frame = (Transform?)_root ?? Screen.transform;
+            _footerNotice = UIBuilder.CloneText(Title, "FooterNotice", text!);
+            _footerNotice.transform.SetParent(frame, false);
+            _footerNotice.fontSize = Title.fontSize * NoticeSizeRatio;
+            _footerNotice.horizontalAlignment = HorizontalAlignmentOptions.Center;
+            _footerNotice.verticalAlignment = VerticalAlignmentOptions.Middle;
+            _footerNotice.enableWordWrapping = false;
+            _footerNotice.overflowMode = TextOverflowModes.Ellipsis;
+            _footerNotice.raycastTarget = false;
+            LayOutFooterNotice();
+        }
+
+        _footerNotice.text = text;
+        _footerNotice.color = color;
+        _footerNotice.gameObject.SetActive(true);
+    }
+
+    /// <summary>The notice fills the footer between Back (left) and the footer buttons (right).</summary>
+    private void LayOutFooterNotice()
+    {
+        if (_footerNotice == null) return;
+        float left = Margin + BackWidth + FooterSpacing;
+        float right = Margin + _footerRightUsed;
+        SetRect(_footerNotice.rectTransform, Vector2.zero, new Vector2(1f, 0f),
+            new Vector2(left, 0f), new Vector2(-right, FooterHeight));
     }
 
     // ---------- Back button ----------

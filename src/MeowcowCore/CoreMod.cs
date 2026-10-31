@@ -43,6 +43,7 @@ public sealed class CoreMod : MelonMod
         ModuleSettings core = MeowcowSettings.ForCore(this);
         SuiteSettings.VanillaSkips.Declare(core);
         SuiteSettings.InputSplit.Declare(core);
+        Menus.SettingsMenu.Declare(core); // [CHANGED] R1: the remembered Settings menu choice
 
         // The version comes from MelonInfo above, so it's never declared twice.
         // [CHANGED] MelonLoader already prints "[MeowcowCore]" before every line, so the name isn't repeated.

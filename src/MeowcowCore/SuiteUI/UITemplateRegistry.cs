@@ -36,6 +36,14 @@ public static class UITemplateRegistry
     /// </summary>
     public const string InfoIcon = "icon.info";
 
+    /// <summary>
+    /// [CHANGED] A small dark text button (the save slots' Import look, no key prompt): footer buttons and
+    /// Core's additions to vanilla screens, in every scene. Size it to its label with <see cref="FitToLabel"/>.
+    /// </summary>
+    public const string SmallButton = "button.small";
+
+    private const float SmallButtonPadding = 16f; // inside the button, either side of the label
+
     private const float InfoIconSize = 14f; // [CHANGED] was 18: read as too large beside the label
     private static readonly Color InfoIconColor = new(1f, 1f, 1f, 0.7f);
 
@@ -67,6 +75,23 @@ public static class UITemplateRegistry
             catch (Exception e)
             {
                 Log.Error("Couldn't make the info icon; rows will have no icon (descriptions still show)", e);
+            }
+        }
+
+        if (!Pieces.ContainsKey(SmallButton))
+        {
+            try
+            {
+                GameObject? small = MakeSmallButton();
+                if (small != null)
+                {
+                    Pieces[SmallButton] = small;
+                    Log.Debug("Made the small button");
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Error("Couldn't make the small button; footer buttons won't be shown", e);
             }
         }
 
@@ -209,6 +234,61 @@ public static class UITemplateRegistry
         }
 
         return button;
+    }
+
+    /// <summary>
+    /// The small button: a copy of the save slots' Import button (look only), its label at vanilla's prompt
+    /// text size, like the Back button's.
+    /// </summary>
+    /// <remarks>[CHANGED] New for the Settings rebuild (R1). [SOURCE] Same source as the Back button.</remarks>
+    private static GameObject? MakeSmallButton()
+    {
+        Button? style = UIPathIndex.FindImportButton();
+        if (style == null)
+        {
+            Log.Debug("Small button source not here yet; will try again at the next menu");
+            return null;
+        }
+
+        GameObject button = UObject.Instantiate(style.gameObject, Holder());
+        button.name = "SmallButton";
+        UIBuilder.StripToLook(button);
+
+        var texts = button.GetComponentsInChildren<TMP_Text>(true);
+        if (texts.Length > 0)
+        {
+            texts[0].enableWordWrapping = false;
+            float? promptSize = VanillaPromptTextSize();
+            if (promptSize.HasValue) texts[0].fontSize = promptSize.Value;
+        }
+        return button;
+    }
+
+    /// <summary>
+    /// Sets a small button's label and widens or narrows it to fit, with padding either side. Returns its
+    /// width.
+    /// </summary>
+    /// <remarks>[CHANGED] New. [PERFORMANCE] One text measurement.</remarks>
+    public static float FitToLabel(GameObject button, string label)
+    {
+        RectTransform rect = button.GetComponent<RectTransform>();
+        var texts = button.GetComponentsInChildren<TMP_Text>(true);
+        if (texts.Length == 0) return rect.sizeDelta.x;
+
+        TMP_Text text = texts[0];
+        text.text = label;
+        float width = text.preferredWidth + SmallButtonPadding * 2f;
+        rect.sizeDelta = new Vector2(width, rect.sizeDelta.y);
+
+        // The label fills the button, centred, so it follows the new width whatever its old anchors were.
+        RectTransform textRect = text.rectTransform;
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+        text.horizontalAlignment = HorizontalAlignmentOptions.Center;
+        text.verticalAlignment = VerticalAlignmentOptions.Middle;
+        return width;
     }
 
     /// <summary>
