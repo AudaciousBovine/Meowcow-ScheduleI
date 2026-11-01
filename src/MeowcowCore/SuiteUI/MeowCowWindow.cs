@@ -53,6 +53,8 @@ public sealed class MeowcowWindow
     internal const float SideTabGlyphRoom = GlyphInset + GlyphSize * 2f + GlyphGap * 2f;
     /// <summary>Each side of a subtab's label: room for one D-pad glyph.</summary>
     internal const float SubtabGlyphRoom = GlyphInset + GlyphSize + GlyphGap;
+    /// <summary>[CHANGED] Right of a left tab's label: room for the Confirm/Back glyph, inside the tab's right edge.</summary>
+    internal const float SideTabActionRoom = GlyphInset + GlyphSize + GlyphGap;
     private const float TabHeight = 34f;
     private const float TabSpacing = 4f;
     private const float PagePadding = 10f;   // between the content area's edge and a page
@@ -307,7 +309,7 @@ public sealed class MeowcowWindow
             labelRect.anchorMin = Vector2.zero;
             labelRect.anchorMax = Vector2.one;
             labelRect.offsetMin = new Vector2(sideTab ? SideTabGlyphRoom : SubtabGlyphRoom, 0f);
-            labelRect.offsetMax = new Vector2(sideTab ? 0f : -SubtabGlyphRoom, 0f);
+            labelRect.offsetMax = new Vector2(sideTab ? -SideTabActionRoom : -SubtabGlyphRoom, 0f);
         }
 
         LayoutElement element = button.GetComponent<LayoutElement>() ?? button.AddComponent<LayoutElement>();

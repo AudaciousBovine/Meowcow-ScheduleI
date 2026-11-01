@@ -556,7 +556,7 @@ internal sealed class WindowNavigator
         UpdateOptionsPrompt(gamepad, style);
     }
 
-    /// <summary>A left tab's glyphs: Up and Down inside its left edge, the Confirm/Back glyph just outside its right edge.</summary>
+    /// <summary>A left tab's glyphs: Up and Down inside its left edge, the Confirm/Back glyph inside its right edge.</summary>
     private TabGlyphs GlyphsFor(WindowTab tab, TMP_Text? style)
     {
         IntPtr key = tab.Toggle.Pointer;
@@ -569,7 +569,8 @@ internal sealed class WindowNavigator
             Up = Place(GamepadGlyphs.Create(button, "GlyphUp", size, style), 0f, MeowcowWindow.GlyphInset, 0f),
             Down = Place(GamepadGlyphs.Create(button, "GlyphDown", size, style), 0f,
                 MeowcowWindow.GlyphInset + size + MeowcowWindow.GlyphGap, 0f),
-            Action = Place(GamepadGlyphs.Create(button, "GlyphAction", size, style), 1f, MeowcowWindow.GlyphGap, 0f),
+            // [CHANGED] Inside the tab's right edge (was just outside it, overlapping the options panel).
+            Action = Place(GamepadGlyphs.Create(button, "GlyphAction", size, style), 1f, -MeowcowWindow.GlyphInset, 1f),
         };
         _tabGlyphs[key] = glyphs;
         return glyphs;
