@@ -102,9 +102,16 @@ internal sealed class WindowNavigator
 
     // ---------- The loop ----------
 
+    /// <remarks>
+    /// [CHANGED] Runs until Stop (the window closing) bumps the token. It used to also require IsOpen, but the
+    /// window's open handler runs before vanilla's MenuScreen marks the screen open, so the loop ended on its
+    /// first check: "Started" was logged and then nothing ran (tabs still cycled, the D-pad and Confirm did
+    /// nothing).
+    /// </remarks>
     private IEnumerator Run(int token)
     {
-        while (token == _token && _window.IsOpen)
+        yield return null; // the screen finishes opening first
+        while (token == _token && _window.IsAlive)
         {
             try
             {
@@ -323,7 +330,7 @@ internal sealed class WindowNavigator
     /// <summary>Back: closes an open dropdown, or leaves the options for tab control; at tab control, not ours.</summary>
     private void OnExit(ExitAction action) => UIBuilder.RunSafely(() =>
     {
-        if (action.Used || action.Type != ExitType.Primary || !_window.IsOpen) return;
+        if (action.Used || action.Type != ExitType.Primary || !_window.IsAlive) return;
         if (!GameInput.GetCurrentInputDeviceIsGamepad() || ConfirmDialog.IsOpen) return;
         if (_level == Level.Tabs) return; // the window closes, as before
 
