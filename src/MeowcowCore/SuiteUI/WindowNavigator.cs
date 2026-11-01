@@ -12,6 +12,7 @@ using UnityEngine.UI;
 using UIOption = Il2CppScheduleOne.UIOption;
 using UIPanel = Il2CppScheduleOne.UIPanel;
 using UIScreenManager = Il2CppScheduleOne.UIScreenManager;
+using UObject = UnityEngine.Object;
 using UISelectable = Il2CppScheduleOne.UISelectable;
 
 namespace MeowcowCore.SuiteUI;
@@ -42,6 +43,7 @@ namespace MeowcowCore.SuiteUI;
 /// repeat timing 0.6 s then 0.11 s (<c>UIScreenManager.NavigationRepeatDelay/Rate</c>).
 /// [PERFORMANCE] One coroutine while the window is open: a few axis and button reads per frame. Row lists
 /// are read on a move, not per frame. Nothing runs while the window is closed.
+/// [CHANGED] Prompts for the controls (see Prompts) and the Options button (the window's OptionsAction).
 /// </remarks>
 internal sealed class WindowNavigator
 {
@@ -74,6 +76,17 @@ internal sealed class WindowNavigator
     private float _stepHeld;
     private float _stepTimer;
 
+    // [CHANGED] Prompts (gamepad only): made on first use, then shown or hidden as the focus moves.
+    private sealed class TabGlyphs
+    {
+        public GameObject? Up, Down, Action;
+    }
+    private readonly Dictionary<IntPtr, TabGlyphs> _tabGlyphs = new();
+    private readonly Dictionary<IntPtr, (GameObject? Left, GameObject? Right)> _subtabGlyphs = new();
+    private GameObject? _sliderPrompt;
+    private readonly List<(GameObject Glyph, string Path)> _sliderGlyphs = new();
+    private GameObject? _optionsGlyph;
+
     internal WindowNavigator(MeowcowWindow window) => _window = window;
 
     /// <summary>Starts with the window: at tab control.</summary>
@@ -98,6 +111,8 @@ internal sealed class WindowNavigator
         if (_exitListener != null) GameInput.DeregisterExitListener(_exitListener);
         if (_dropdown != null && _dropdown.IsExpanded) _dropdown.Hide();
         _dropdown = null;
+        _wasGamepad = false;
+        UpdatePrompts(); // hidden until the window opens again
     }
 
     // ---------- The loop ----------
@@ -133,7 +148,11 @@ internal sealed class WindowNavigator
 
         if (!GameInput.GetCurrentInputDeviceIsGamepad())
         {
-            _wasGamepad = false;
+            if (_wasGamepad)
+            {
+                _wasGamepad = false;
+                UpdatePrompts(); // hides them all
+            }
             return;
         }
         if (!_wasGamepad)
@@ -142,6 +161,13 @@ internal sealed class WindowNavigator
             SetLevel(Level.Tabs);
         }
         if (ConfirmDialog.IsOpen) return; // the dialog has the input
+
+        // [CHANGED] The Options button (Select/View, left of Start): the window's own action, if it has one.
+        if (_window.OptionsAction != null && OptionsPressed())
+        {
+            UIBuilder.RunSafely(_window.OptionsAction, "Options button");
+            return;
+        }
 
         switch (_level)
         {
@@ -164,11 +190,13 @@ internal sealed class WindowNavigator
             int next = Mathf.Clamp(_window.SelectedTab - dir.y, 0, _window.Tabs.Count - 1); // up is +y
             if (next != _window.SelectedTab) _window.SelectTab(next);
             HighlightTab();
+            UpdatePrompts();
         }
         else if (dir.x != 0 && tab.PageCount > 1)
         {
             tab.SelectPage(Mathf.Clamp(tab.SelectedPage + dir.x, 0, tab.PageCount - 1));
             HighlightTab();
+            UpdatePrompts();
         }
 
         if (ConfirmPressed()) EnterOptions(tab);
@@ -204,6 +232,7 @@ internal sealed class WindowNavigator
             {
                 _row = next;
                 SelectRow(page, rows[_row]);
+                UpdatePrompts(); // the slider prompt follows the selected row
             }
         }
 
@@ -372,6 +401,7 @@ internal sealed class WindowNavigator
                 if (items.Length > 0) SelectItem(items[Mathf.Clamp(_item, 0, items.Length - 1)]);
                 break;
         }
+        UpdatePrompts();
         Log.Debug($"Level: {level}");
     }
 
@@ -480,6 +510,190 @@ internal sealed class WindowNavigator
         if (_navTimer > 0f) return Vector2Int.zero;
         _navTimer = NextRepeat;
         return dir;
+    }
+
+    // ---------- Prompts ----------
+    // [CHANGED] New (Evelyna's layout), gamepad only:
+    //  - selected left tab: D-pad Up then Down, left of its label, in fixed slots (one hides at the first or
+    //    last tab, the other keeps its place); Confirm right of the tab at tab control, Back in the options;
+    //  - selected subtab: D-pad Left and Right either side of its label (hidden at the ends);
+    //  - selected slider: "<< LT < LB  RB > RT >>" centred under it;
+    //  - the Options button beside the window's OptionsAnchor (if it has one).
+    // [SOURCE] Glyphs: SuiteUI/GamepadGlyphs (vanilla's own prompt pictures). [PERFORMANCE] Updated on a
+    // move, a level change or a device change, never per frame; each glyph is made once.
+
+    private void UpdatePrompts()
+    {
+        if (!_window.IsAlive) return;
+        bool gamepad = _wasGamepad;
+        TMP_Text? style = _window.Title;
+        string? confirm = gamepad ? GamepadGlyphs.PathOf(Singleton<UIScreenManager>.Instance?.SubmitInputAction) : null;
+        string? back = gamepad ? GamepadGlyphs.PathOf(Singleton<GameInput>.Instance?.PrimaryExitAction) : null;
+        bool atTabs = _level == Level.Tabs;
+
+        IReadOnlyList<WindowTab> tabs = _window.Tabs;
+        for (int i = 0; i < tabs.Count; i++)
+        {
+            WindowTab tab = tabs[i];
+            TabGlyphs glyphs = GlyphsFor(tab, style);
+            bool selected = gamepad && i == _window.SelectedTab;
+            GamepadGlyphs.Show(glyphs.Up, selected && atTabs && i > 0 ? GamepadGlyphs.DpadUp : null);
+            GamepadGlyphs.Show(glyphs.Down, selected && atTabs && i < tabs.Count - 1 ? GamepadGlyphs.DpadDown : null);
+            GamepadGlyphs.Show(glyphs.Action, selected ? (atTabs ? confirm : back) : null);
+
+            for (int j = 0; j < tab.PageCount; j++)
+            {
+                GameObject? button = tab.SubtabButton(j);
+                if (button == null) continue;
+                (GameObject? left, GameObject? right) = SubtabGlyphsFor(button, style);
+                bool focus = selected && atTabs && j == tab.SelectedPage;
+                GamepadGlyphs.Show(left, focus && j > 0 ? GamepadGlyphs.DpadLeft : null);
+                GamepadGlyphs.Show(right, focus && j < tab.PageCount - 1 ? GamepadGlyphs.DpadRight : null);
+            }
+        }
+
+        UpdateSliderPrompt(gamepad && _level == Level.Options, style);
+        UpdateOptionsPrompt(gamepad, style);
+    }
+
+    /// <summary>A left tab's glyphs: Up and Down inside its left edge, the Confirm/Back glyph just outside its right edge.</summary>
+    private TabGlyphs GlyphsFor(WindowTab tab, TMP_Text? style)
+    {
+        IntPtr key = tab.Toggle.Pointer;
+        if (_tabGlyphs.TryGetValue(key, out TabGlyphs? glyphs)) return glyphs;
+
+        Transform button = tab.Toggle.transform;
+        float size = MeowcowWindow.GlyphSize;
+        glyphs = new TabGlyphs
+        {
+            Up = Place(GamepadGlyphs.Create(button, "GlyphUp", size, style), 0f, MeowcowWindow.GlyphInset, 0f),
+            Down = Place(GamepadGlyphs.Create(button, "GlyphDown", size, style), 0f,
+                MeowcowWindow.GlyphInset + size + MeowcowWindow.GlyphGap, 0f),
+            Action = Place(GamepadGlyphs.Create(button, "GlyphAction", size, style), 1f, MeowcowWindow.GlyphGap, 0f),
+        };
+        _tabGlyphs[key] = glyphs;
+        return glyphs;
+    }
+
+    /// <summary>A subtab's glyphs: Left inside its left edge, Right inside its right edge.</summary>
+    private (GameObject? Left, GameObject? Right) SubtabGlyphsFor(GameObject button, TMP_Text? style)
+    {
+        IntPtr key = button.Pointer;
+        if (_subtabGlyphs.TryGetValue(key, out var glyphs)) return glyphs;
+        float size = MeowcowWindow.GlyphSize;
+        glyphs = (Place(GamepadGlyphs.Create(button.transform, "GlyphLeft", size, style), 0f, MeowcowWindow.GlyphInset, 0f),
+                  Place(GamepadGlyphs.Create(button.transform, "GlyphRight", size, style), 1f, -MeowcowWindow.GlyphInset, 1f));
+        _subtabGlyphs[key] = glyphs;
+        return glyphs;
+    }
+
+    /// <summary>
+    /// Anchors a glyph on its parent's left (anchorX 0) or right (1) edge, vertically centred, its own left
+    /// (pivotX 0) or right (1) side at <paramref name="x"/>.
+    /// </summary>
+    private static GameObject Place(GameObject glyph, float anchorX, float x, float pivotX)
+    {
+        RectTransform rect = glyph.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(anchorX, 0.5f);
+        rect.pivot = new Vector2(pivotX, 0.5f);
+        rect.anchoredPosition = new Vector2(x, 0f);
+        return glyph;
+    }
+
+    /// <summary>"<< LT < LB  RB > RT >>" centred under the selected row's slider, or hidden.</summary>
+    private void UpdateSliderPrompt(bool show, TMP_Text? style)
+    {
+        Slider? slider = null;
+        if (show)
+        {
+            WindowPage? page = CurrentTab()?.CurrentPage;
+            List<UISelectable> rows = Rows(page);
+            if (page != null && rows.Count > 0)
+            {
+                var sliders = RowOf(page, rows[Mathf.Clamp(_row, 0, rows.Count - 1)].transform).GetComponentsInChildren<Slider>(true);
+                if (sliders.Length > 0) slider = sliders[0];
+            }
+        }
+
+        if (slider == null)
+        {
+            if (_sliderPrompt != null) _sliderPrompt.SetActive(false);
+            return;
+        }
+
+        _sliderPrompt ??= BuildSliderPrompt(style);
+        RectTransform rect = _sliderPrompt.GetComponent<RectTransform>();
+        rect.SetParent(slider.transform, false); // follows the slider
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchoredPosition = new Vector2(0f, -2f);
+        foreach ((GameObject glyph, string path) in _sliderGlyphs) GamepadGlyphs.Show(glyph, path); // the pad may have changed
+        _sliderPrompt.SetActive(true);
+    }
+
+    private GameObject BuildSliderPrompt(TMP_Text? style)
+    {
+        var prompt = new GameObject("SliderPrompt");
+        prompt.AddComponent<RectTransform>();
+        HorizontalLayoutGroup row = prompt.AddComponent<HorizontalLayoutGroup>();
+        row.spacing = MeowcowWindow.GlyphGap;
+        row.childAlignment = TextAnchor.MiddleCenter;
+        row.childControlWidth = true;
+        row.childControlHeight = true;
+        row.childForceExpandWidth = false;
+        row.childForceExpandHeight = false;
+        ContentSizeFitter fitter = prompt.AddComponent<ContentSizeFitter>();
+        fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        float size = MeowcowWindow.GlyphSize * 0.9f;
+        AddText(prompt.transform, "<<", style);
+        AddGlyph(prompt.transform, GamepadGlyphs.LeftTrigger, size, style);
+        AddText(prompt.transform, "<", style);
+        AddGlyph(prompt.transform, GamepadGlyphs.LeftShoulder, size, style);
+        AddSpacer(prompt.transform, MeowcowWindow.GlyphSize);
+        AddGlyph(prompt.transform, GamepadGlyphs.RightShoulder, size, style);
+        AddText(prompt.transform, ">", style);
+        AddGlyph(prompt.transform, GamepadGlyphs.RightTrigger, size, style);
+        AddText(prompt.transform, ">>", style);
+        return prompt;
+    }
+
+    private void AddGlyph(Transform parent, string path, float size, TMP_Text? style) =>
+        _sliderGlyphs.Add((GamepadGlyphs.Create(parent, "Glyph", size, style), path));
+
+    private static void AddText(Transform parent, string text, TMP_Text? style)
+    {
+        if (style == null) return;
+        TMP_Text label = UIBuilder.CloneText(style, "Text", text);
+        label.transform.SetParent(parent, false);
+        label.fontSize = MeowcowWindow.GlyphSize * 0.75f;
+        label.raycastTarget = false;
+    }
+
+    private static void AddSpacer(Transform parent, float width)
+    {
+        var spacer = new GameObject("Spacer");
+        spacer.AddComponent<RectTransform>().SetParent(parent, false);
+        spacer.AddComponent<LayoutElement>().preferredWidth = width;
+    }
+
+    /// <summary>The Options glyph just left of the window's OptionsAnchor (if it has one).</summary>
+    private void UpdateOptionsPrompt(bool gamepad, TMP_Text? style)
+    {
+        RectTransform? anchor = _window.OptionsAnchor;
+        if (anchor == null) return;
+        _optionsGlyph ??= Place(GamepadGlyphs.Create(anchor, "GlyphOptions", MeowcowWindow.GlyphSize, style),
+            0f, -MeowcowWindow.GlyphGap, 1f);
+        GamepadGlyphs.Show(_optionsGlyph, gamepad ? GamepadGlyphs.Select : null);
+    }
+
+    /// <summary>The gamepad's Options button (Select/View/Share, left of Start), pressed this frame.</summary>
+    /// <remarks>Read from the pad itself: vanilla binds no UI action to it.</remarks>
+    internal static bool OptionsPressed()
+    {
+        var pad = UnityEngine.InputSystem.Gamepad.current;
+        return pad != null && pad.selectButton.wasPressedThisFrame;
     }
 
     // ---------- Vanilla's own input, kept out ----------

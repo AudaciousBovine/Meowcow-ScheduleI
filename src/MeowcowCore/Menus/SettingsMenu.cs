@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Il2CppTMPro;
 using MeowcowCore.Foundation;
 using MeowcowCore.SuiteSettings;
 using MeowcowCore.SuiteSettingsManager;
@@ -391,7 +392,10 @@ internal static class SettingsMenu
 
         foreach (WindowPage page in pending) page.AddText(PendingText); // [TEMPORARY]
 
-        window.AddFooterButton("ShowVanilla", ShowVanillaLabel, ShowVanilla);
+        Button? showVanilla = window.AddFooterButton("ShowVanilla", ShowVanillaLabel, ShowVanilla);
+        // [CHANGED] The gamepad's Options button does the same, with its prompt beside the footer button.
+        window.OptionsAction = ShowVanilla;
+        window.OptionsAnchor = showVanilla != null ? showVanilla.GetComponent<RectTransform>() : null;
 
         int unmapped = scan?.Unmapped.Count ?? 0;
         if (unmapped > 0)
@@ -615,6 +619,14 @@ internal static class SettingsMenu
                 float width = UITemplateRegistry.FitToLabel(show, ShowImprovedLabel);
                 PlaceBelowFrame(show.GetComponent<RectTransform>(), right: true, width);
                 UIBuilder.SetClick(show.GetComponent<Button>(), ShowImproved);
+
+                // [CHANGED] The Options prompt, just left of the button; shown with a gamepad (see WatchOptions).
+                TMP_Text? style = root.Find(UIPathIndex.WindowTitle)?.GetComponent<TMP_Text>();
+                _vanillaOptionsGlyph = GamepadGlyphs.Create(show.transform, "GlyphOptions", MeowcowWindow.GlyphSize, style);
+                RectTransform glyphRect = _vanillaOptionsGlyph.GetComponent<RectTransform>();
+                glyphRect.anchorMin = glyphRect.anchorMax = new Vector2(0f, 0.5f);
+                glyphRect.pivot = new Vector2(1f, 0.5f);
+                glyphRect.anchoredPosition = new Vector2(-MeowcowWindow.GlyphGap, 0f);
             }
             else
             {
@@ -674,6 +686,35 @@ internal static class SettingsMenu
     }
 
     // Called from native code: exceptions must never escape.
+    private static GameObject? _vanillaOptionsGlyph;
+    private static int _optionsWatch; // bumped on each open and close, so an old watch stops
+
+    /// <summary>
+    /// While vanilla's screen is open: its Options prompt follows the device, and the gamepad's Options button
+    /// switches to the improved menu (as it switches the other way in the improved window).
+    /// </summary>
+    /// <remarks>[CHANGED] New. [PERFORMANCE] One button read per frame while vanilla's Settings is open.</remarks>
+    private static System.Collections.IEnumerator WatchOptions(int token)
+    {
+        bool? shown = null;
+        yield return null; // vanilla marks the screen open after this handler (the navigator's lesson)
+        while (token == _optionsWatch && _vanilla != null) // ends when the close handler bumps the token
+        {
+            bool gamepad = Il2CppScheduleOne.GameInput.GetCurrentInputDeviceIsGamepad();
+            if (shown != gamepad)
+            {
+                shown = gamepad;
+                GamepadGlyphs.Show(_vanillaOptionsGlyph, gamepad ? GamepadGlyphs.Select : null);
+            }
+            if (gamepad && WindowNavigator.OptionsPressed())
+            {
+                UIBuilder.RunSafely(ShowImproved, "Options button");
+                yield break;
+            }
+            yield return null;
+        }
+    }
+
     private static void OnVanillaOpened() => UIBuilder.RunSafely(() =>
     {
         // [CHANGED] R4 fallback: vanilla opened its screen itself, but the improved menu is chosen. Hand over
@@ -690,6 +731,7 @@ internal static class SettingsMenu
         _cornerPromptWasActive = _cornerPrompt != null && _cornerPrompt.activeSelf;
         if (_cornerPromptWasActive) _cornerPrompt!.SetActive(false);
         InputPrompts.Shown(_vanillaExtras);
+        MelonLoader.MelonCoroutines.Start(WatchOptions(++_optionsWatch)); // [CHANGED] the Options button
     }, "vanilla Settings open");
 
     private static System.Collections.IEnumerator HandOverNextFrame()
@@ -704,6 +746,7 @@ internal static class SettingsMenu
 
     private static void OnVanillaClosed() => UIBuilder.RunSafely(() =>
     {
+        _optionsWatch++; // [CHANGED] stops the Options watch
         InputPrompts.Hidden(_vanillaExtras);
         // Only shown again if it was showing before, so a prompt vanilla hid stays hidden.
         if (_cornerPromptWasActive && _cornerPrompt != null) _cornerPrompt.SetActive(true);

@@ -612,6 +612,13 @@ the way `SettingRows` follows a Core setting's `Changed`.
   (`UIScreenManager.SubmitInputAction`; GameInput's Submit never fires in menus). Vanilla's row scripts that
   read the D-pad (`UIOption`) are switched off on window rows. The confirm dialog: Confirm keeps, Back
   cancels, and its Keep/Cancel buttons show those prompts.
+  **Prompts (gamepad only)** from vanilla's own pictures (`SuiteUI/GamepadGlyphs`, reading
+  `InputPromptsManager`'s binding data per pad, Steam fallback): selected left tab: D-pad Up then Down left of
+  the label in fixed slots (one hides at an end); Confirm right of the tab at tab control, Back in the
+  options; selected subtab: D-pad Left/Right either side of the label; selected slider: "<< LT < LB  RB > RT
+  >>" under it. Tabs and subtabs are padded for the glyphs whatever the device. **Options button**
+  (Select/View/Share, left of Start, read from the pad) switches Improved ↔ Vanilla Settings, with its prompt
+  beside each menu's switch button.
   Original plan: the D-pad moves over the left
   tabs and top subtabs; Confirm enters the page; Back returns to the tabs (and closes the window from
   there). Inside a page, vanilla's own navigation. On a slider, LB/RB move it 1 and LT/RT 10 (in its own

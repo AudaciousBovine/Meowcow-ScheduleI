@@ -43,6 +43,16 @@ public sealed class MeowcowWindow
     private const float TitleHeight = 70f;   // title bar, also the drag handle
     private const float FooterHeight = 50f;  // room for the Back button
     private const float TabWidth = 170f;
+
+    // [CHANGED] Gamepad prompt room in tabs (window navigation prompts): D-pad glyphs sit inside the tabs, so
+    // labels are inset to leave room, always (nothing shifts when the device changes).
+    internal const float GlyphSize = 22f;
+    internal const float GlyphGap = 4f;
+    internal const float GlyphInset = 6f;   // from a tab's edge to its first glyph
+    /// <summary>Left of a left tab's label: room for D-pad Up and Down side by side.</summary>
+    internal const float SideTabGlyphRoom = GlyphInset + GlyphSize * 2f + GlyphGap * 2f;
+    /// <summary>Each side of a subtab's label: room for one D-pad glyph.</summary>
+    internal const float SubtabGlyphRoom = GlyphInset + GlyphSize + GlyphGap;
     private const float TabHeight = 34f;
     private const float TabSpacing = 4f;
     private const float PagePadding = 10f;   // between the content area's edge and a page
@@ -145,6 +155,15 @@ public sealed class MeowcowWindow
 
     /// <summary>[CHANGED] The left tab strip, which the navigator keeps locked.</summary>
     internal UITab TabStrip => _tabStrip;
+
+    /// <summary>
+    /// [CHANGED] What the gamepad's Options button (Select/View, left of Start) does in this window, if
+    /// anything (the Improved Settings menu: switch to vanilla's). The navigator calls it.
+    /// </summary>
+    public Action? OptionsAction { get; set; }
+
+    /// <summary>[CHANGED] Where the Options prompt shows: just left of this (e.g. the footer button it matches).</summary>
+    public RectTransform? OptionsAnchor { get; set; }
 
     /// <summary>
     /// The LB/RB prompts beside the tabs go: the bumpers don't cycle tabs any more (they move sliders; the
@@ -280,7 +299,16 @@ public sealed class MeowcowWindow
         button.name = "Tab " + label;
 
         TMP_Text? text = button.transform.Find(UIPathIndex.WindowTabLabel)?.GetComponent<TMP_Text>();
-        if (text != null) text.text = label;
+        if (text != null)
+        {
+            text.text = label;
+            // [CHANGED] Inset for the gamepad glyphs: left tabs on the left (Up, Down), subtabs on both sides.
+            RectTransform labelRect = text.rectTransform;
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = new Vector2(sideTab ? SideTabGlyphRoom : SubtabGlyphRoom, 0f);
+            labelRect.offsetMax = new Vector2(sideTab ? 0f : -SubtabGlyphRoom, 0f);
+        }
 
         LayoutElement element = button.GetComponent<LayoutElement>() ?? button.AddComponent<LayoutElement>();
         element.minHeight = TabHeight;

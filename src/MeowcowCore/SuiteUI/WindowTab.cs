@@ -28,7 +28,7 @@ public sealed class WindowTab
 {
     private const float PagePadding = 10f;
     private const float StripHeight = 34f;    // same height as a tab (the row the window reserves above its panel)
-    private const float SubtabWidth = 150f;
+    private const float SubtabWidth = 150f + 2f * MeowcowWindow.SubtabGlyphRoom; // [CHANGED] room for the D-pad glyphs
     private const float SubtabSpacing = 4f;
 
     private static readonly MeowcowLogger Log = CoreMod.Log.Tagged("Window");
