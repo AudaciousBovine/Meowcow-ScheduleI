@@ -1,0 +1,1 @@
+@src/.aidevs/CLAUDE.md

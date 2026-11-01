@@ -39,8 +39,6 @@ public static class GamepadGlyphs
     public const string LeftTrigger = "<Gamepad>/leftTrigger";
     public const string RightTrigger = "<Gamepad>/rightTrigger";
     public const string Select = "<Gamepad>/select"; // View / Share / Select: left of Start (vanilla has no picture)
-    /// <summary>[CHANGED] Y on Xbox, Triangle on PlayStation: vanilla's phone button, which has pictures.</summary>
-    public const string ButtonNorth = "<Gamepad>/buttonNorth";
 
     private const string LabelName = "Label";
     private static readonly MeowcowLogger Log = CoreMod.Log.Tagged("Glyphs");
@@ -117,9 +115,11 @@ public static class GamepadGlyphs
 
     /// <summary>The gamepad control path an action is bound to (e.g. Confirm's "&lt;Gamepad&gt;/buttonSouth"), or null.</summary>
     /// <remarks>Follows rebinding: the effective path, as vanilla's prompts use.</remarks>
-    public static string? PathOf(InputActionReference? reference)
+    public static string? PathOf(InputActionReference? reference) => PathOf(reference?.action);
+
+    /// <summary>[CHANGED] As above, for an action found by name (the menu switch's TogglePhone).</summary>
+    public static string? PathOf(InputAction? action)
     {
-        InputAction? action = reference?.action;
         if (action == null) return null;
         var bindings = action.bindings;
         for (int i = 0; i < bindings.Count; i++)

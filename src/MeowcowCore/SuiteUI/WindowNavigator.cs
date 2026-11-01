@@ -146,6 +146,14 @@ internal sealed class WindowNavigator
     {
         LockStrips(); // always: the bumpers and triggers never cycle tabs
 
+        // [CHANGED] Nothing during a rebind or just after it (RebindGuard); polled every frame so a rebind is seen.
+        if (RebindGuard.Blocking)
+        {
+            _navHeld = Vector2Int.zero; // a held direction doesn't resume afterwards
+            _stepHeld = 0f;
+            return;
+        }
+
         if (!GameInput.GetCurrentInputDeviceIsGamepad())
         {
             if (_wasGamepad)
@@ -162,7 +170,7 @@ internal sealed class WindowNavigator
         }
         if (ConfirmDialog.IsOpen) return; // the dialog has the input
 
-        // [CHANGED] The Options button (Select/View, left of Start): the window's own action, if it has one.
+        // [CHANGED] The menu switch (vanilla's phone action, Y / Triangle): the window's own action, if it has one.
         if (_window.OptionsAction != null && OptionsPressed())
         {
             UIBuilder.RunSafely(_window.OptionsAction, "Options button");
@@ -360,6 +368,13 @@ internal sealed class WindowNavigator
     private void OnExit(ExitAction action) => UIBuilder.RunSafely(() =>
     {
         if (action.Used || action.Type != ExitType.Primary || !_window.IsAlive) return;
+        // [CHANGED] During a rebind or just after it, Back (keyboard or pad) is swallowed: the press that ends a
+        // rebind can't close the window.
+        if (RebindGuard.Blocking)
+        {
+            action.Used = true;
+            return;
+        }
         if (!GameInput.GetCurrentInputDeviceIsGamepad() || ConfirmDialog.IsOpen) return;
         if (_level == Level.Tabs) return; // the window closes, as before
 
@@ -686,22 +701,55 @@ internal sealed class WindowNavigator
         if (anchor == null) return;
         _optionsGlyph ??= Place(GamepadGlyphs.Create(anchor, "GlyphOptions", MeowcowWindow.GlyphSize, style),
             0f, -MeowcowWindow.GlyphGap, 1f);
-        GamepadGlyphs.Show(_optionsGlyph, gamepad ? GamepadGlyphs.ButtonNorth : null);
+        GamepadGlyphs.Show(_optionsGlyph, gamepad ? OptionsPath() : null);
     }
 
+    private const string PhoneActionName = "TogglePhone";
+    private static UnityEngine.InputSystem.InputAction? _phoneAction;
+    private static UnityEngine.InputSystem.PlayerInput? _phoneSource; // the PlayerInput it was found on
+
     /// <summary>
-    /// The menu-switch button, pressed this frame: Y / Triangle (the top face button, vanilla's phone button
-    /// by default).
+    /// Vanilla's phone action (Y / Triangle by default), the menu switch. Found once per PlayerInput, or null.
     /// </summary>
     /// <remarks>
-    /// [CHANGED] Was Select (left of Start), but vanilla has no picture for it, so its prompt couldn't show
-    /// (log: "No picture for '&lt;Gamepad&gt;/select'"). Read from the pad itself, so it's the default button
-    /// even if the phone is rebound; menus don't use it otherwise.
+    /// [CHANGED] The menu switch follows vanilla's TogglePhone action instead of reading the pad's top button,
+    /// so rebinding the phone moves it too. Re-found if GameInput's PlayerInput is replaced.
+    /// [SOURCE] Unity <c>InputActionAsset.FindAction</c>; action name from the Slice 4 input dump.
+    /// [PERFORMANCE] One reference compare per call; the name lookup only when the PlayerInput changes.
+    /// </remarks>
+    private static UnityEngine.InputSystem.InputAction? PhoneAction()
+    {
+        GameInput? gameInput = Singleton<GameInput>.Instance;
+        if (gameInput == null) return null;
+        UnityEngine.InputSystem.PlayerInput? playerInput = gameInput.PlayerInput;
+        if (playerInput == null) return null;
+        if (_phoneSource != playerInput || _phoneAction == null)
+        {
+            _phoneSource = playerInput;
+            _phoneAction = playerInput.actions != null ? playerInput.actions.FindAction(PhoneActionName) : null;
+            if (_phoneAction == null) Log.Warning($"Vanilla action '{PhoneActionName}' not found; the menu switch is off");
+            else Log.Debug($"Menu switch follows '{PhoneActionName}' (enabled: {_phoneAction.enabled})");
+        }
+        return _phoneAction;
+    }
+
+    /// <summary>The menu switch's gamepad control path, for its prompt (follows rebinding), or null.</summary>
+    internal static string? OptionsPath() => GamepadGlyphs.PathOf(PhoneAction());
+
+    /// <summary>The menu switch, pressed this frame on a gamepad: vanilla's phone action.</summary>
+    /// <remarks>
+    /// [CHANGED] Was the pad's top face button read directly (and before that Select, which vanilla has no
+    /// picture for). Only a gamepad press counts: the phone's keyboard key doesn't switch menus.
+    /// [CHANGED] Never during a rebind or just after it (RebindGuard): rebinding the phone button itself used to
+    /// switch menus. Checked first, so every call also polls the guard.
     /// </remarks>
     internal static bool OptionsPressed()
     {
-        var pad = UnityEngine.InputSystem.Gamepad.current;
-        return pad != null && pad.buttonNorth.wasPressedThisFrame;
+        if (RebindGuard.Blocking) return false;
+        UnityEngine.InputSystem.InputAction? phone = PhoneAction();
+        if (phone == null || !phone.WasPressedThisFrame()) return false;
+        UnityEngine.InputSystem.InputControl? control = phone.activeControl;
+        return control != null && control.device.TryCast<UnityEngine.InputSystem.Gamepad>() != null;
     }
 
     // ---------- Vanilla's own input, kept out ----------

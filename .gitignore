@@ -9,6 +9,9 @@ obj/
 # Local machine paths (never commit)
 GamePaths.props
 
+# Vanilla decompiles supplied for research (game code, never commit)
+/Decompiles/
+
 # Never commit game or interop assemblies
 *.dll
 *.pdb

@@ -485,7 +485,8 @@ vanilla skips, the keyboard/gamepad split and the description panel.
 2. **Built (being replaced):** in-game (pause menu), with **General › Current Game**.
 3. New Core settings (**built:** the vanilla skips, the keyboard/gamepad split, the description panel with
    info icons).
-4. The keybind rework, with two bindings per action (after R4).
+4. The keybind rework, with two bindings per action (after R4). **Designed**, see "Keybinds (slice 4)".
+4b. Core's own input prompts. **Designed**, see "Input prompts (slice 4b)".
 
 ### Layout
 | Tab | Subtab | Rows |
@@ -496,10 +497,11 @@ vanilla skips, the keyboard/gamepad split and the description panel.
 | | Camera | Camera Bobbing, FOV, Mouse Camera Sensitivity, Mouse Invert Y, Gamepad Camera Sensitivity, Gamepad Invert Y* |
 | **Graphics** | | Resolution, Monitor (two or more displays), Display Mode, V-Sync, Target Framerate, Quality, Anti-aliasing, SSAO, God Rays |
 | **Audio** | | all eight volume sliders |
-| **Keybinds** | Mouse & Keyboard | Restore Default Bindings, Sprint Mode, Sneak Mode*, Bindings (two per action*) |
-| | Gamepad | Restore Default Bindings, Sprint Mode*, Sneak Mode*, Bindings |
+| **Mouse & Keyboard** | Player, Vehicle, Building, Interaction, Phone, Menu | Keybind rows per context (slice 4) |
+| **Gamepad** | Player, Vehicle, Building, Interaction, Phone, Menu | Keybind rows per context (slice 4) |
 
 \* new (slices 3–4). "Camera Sensitivity" keeps "Camera": it isn't the menu cursor's.
+[CHANGED] Slice 4 replaces the Keybinds tab with one tab per device, its subtabs the contexts (see "Keybinds (slice 4)").
 
 ### Rebuilt with adapters (decided; replaces the in-place reorganising)
 **Why.** Moving vanilla's rows into vanilla's real screen kept inheriting vanilla state Core doesn't control:
@@ -708,16 +710,110 @@ Each uses vanilla's own flow; nothing is patched.
   it running; it's re-registered as a gamepad panel and its rows are aligned.
 - `[PERFORMANCE]` the reorganising (about 40 reparents) happens on the first Settings open of a session.
 
-### Still from the original plan
-- **Keybind registry:** one place for every binding.
-  - Holds vanilla bindings (mirrored from the live actions once vanilla `Settings` has applied them) and
-    every suite binding modules declare.
-  - **Each binding has a context** (e.g. On foot, Driving, Menus, Character creator). The same key can
-    be used in different contexts; conflicts are flagged only within a context. Modules can add contexts.
-  - On a conflict, Core asks instead of silently clearing: "F is used by Interact (On foot). Replace it?"
-  - The Keybinds tab is built from it (slice 4), grouped by context, keyboard and gamepad on their subtabs.
-  - **Vanilla stays the source of truth** for its own bindings; the mirror is re-read every launch.
-  - `[PERFORMANCE]` built once at launch; conflict checks only when a key changes.
+### Keybinds (slice 4) — designed
+Replaces the original plan's "keybind registry" notes. Research (input dump, vanilla's Keybinds rows, a session-start
+dump of scene-assigned references, and decompiles of `GameInput`, `RebindActionUI`, `PlayerInventory`,
+`LandVehicle`, `VehicleCamera`, `BuildUpdate_*`, `PackagingTool`, `SpraySurfaceInteraction`, `InputPromptsManager`)
+is summarised in `STATUS.md`.
+
+**Principles**
+- **Every control is shown**, changeable or not: the tabs are a complete map of the controls. Rows that can't be
+  changed, or that follow another action, look locked, show the **live** key(s) they use and name what they follow
+  ("Follows Player › Forward").
+- **No input limits:** keyboard slots take every key and every mouse input (left, right, middle, back, forward, Scroll
+  Up/Down). **Escape is the one exception:** it cancels a rebind and stays Back. Gamepad slots take gamepad controls.
+- **Option A, no patches:** Core adds bindings to vanilla's own `InputAction`s, so every vanilla and modded system
+  honours them.
+- **Vanilla's own Settings screen is left exactly as vanilla** (the fallback menu): its rebinds still accept Escape.
+
+**Layout**
+- Two left tabs, **Mouse & Keyboard** and **Gamepad** (replacing Keybinds). Their subtabs are the **contexts**; each
+  subtab has its own **Restore Defaults**, restoring only that context on that device. No per-row reset.
+- Subtabs that don't fit **wrap onto another row** (a generic `MeowcowWindow` feature: one tab-high row per strip
+  row; D-pad left/right steps through them in order).
+- Rows: `[Label] [Slot 1] [Slot 2]` on both tabs. Slots are **wide enough for a combo** ("Ctrl + Shift + F") in
+  vanilla's key-cap style. Section **headers** inside a subtab are a new generic `WindowPage` row kind.
+- Mouse: click a slot to listen; right-click clears it. Gamepad: up/down rows, left/right slot, Confirm listens.
+- Labels: vanilla's own (from its rows) where they exist; one label per action on both tabs.
+
+**Contexts**
+| Subtab | Rows (headers in bold; * fixed or follower) |
+|---|---|
+| **Player** | Sprint Mode, Sneak Mode, Forward/Backward/Left/Right, Jump, Sprint, Crouch, Interact, Flashlight, View Avatar, Use/Drag/Attack*, Pick up*, Hotbar Previous/Next*, Equip/Unequip, Reload, Re-equip |
+| **Vehicle** | **Car**: Throttle*, Reverse*, Steer Left*/Right* (keyboard: follow Player movement), Handbrake, Headlights, Exit Vehicle* (Interact + Esc), Look Around* (hold Pick up), Reset Camera · **Skateboard**: Mount, Dismount |
+| **Building** | Place, Rotate Left, Rotate Right, Temperature Overlay (Clipboard), Temperature Overlay (Placing)* (follows Headlights) |
+| **Interaction** | **Workstation**: Rotate Held Item, Spray Mister, Drop Product, Packaging Conveyor* (Player Left/Right + ←/→), Graffiti Paint* (Use/Drag/Attack), Graffiti Undo (pad only) · **Police Search**: Speed Up Body Search · **Pickpocket**: Stop Pickpocket |
+| **Phone** | Phone, Map, Texts, Journal |
+| **Menu** | Pause, Quick Move, Dismiss Hint; pad: Select*, Back* |
+
+- Hidden: `ToggleConsole`, `Rotate` and `VehicleMoveCamera` (unused by vanilla), `UI*` actions (UI navigation rework,
+  later). Other unexposed actions are reviewed one by one before being shown.
+- Fixed slot 1: Primary/Secondary (Left/Right Mouse), Hotbar Previous/Next (Scroll Up/Down: vanilla reads
+  `GameInput.MouseScrollDelta` in `PlayerInventory`, not an action). Their slot 2 is free.
+- Gamepad-only actions (InventoryLeft/Right, Holster, TogglePause) get keyboard slots, both Core's.
+- On the Gamepad tab, Vehicle's Throttle/Reverse are real bindings (`VehicleDrive`, triggers) and rebindable; on
+  keyboard, vanilla's `VehicleDriveAxis` returns `MotionAxis.y`, so the car follows Player movement.
+
+**Bindings: three per action, two visible slots**
+| Binding | Role | Saved |
+|---|---|---|
+| **V**, vanilla's | Slot 1 while it's a plain key | Vanilla's override (`WriteInputSettings`, `ApplyInputSettings`) |
+| **C1**, Core's primary | Slot 1 **only while it holds a combo**; V is then emptied (an empty override) | `MeowcowCore/keybinds.json` |
+| **C2**, Core's secondary | Slot 2, plain key or combo | `MeowcowCore/keybinds.json` |
+- V and C1 never coexist: two bindings to one key could send two events per press and break `GameInput`'s
+  press/release toggling.
+- Slot 1 can be **unbound** (vanilla's empty override), so an action can be combo-only.
+- Core's bindings use `path`, never `overridePath` (vanilla's save and restore never see them), with **fixed IDs**
+  from action + slot, and copy `groups`, `interactions` and `processors` from vanilla's binding (the dump showed
+  these vary per action: `Press(behavior=2)`, plain `Press`, none).
+- Added at the first menu (map disabled, then re-enabled), re-checked on `Settings.onInputsApplied`; guarded by ID.
+- `keybinds.json` is written like the settings files (half a second after a change, atomic, only if changed).
+- `[PERFORMANCE]` About 50 bindings once per launch; an ID check per binding on apply. Nothing per frame.
+
+**Combos (modifier + key)**
+- Core-added `OneModifier` / `TwoModifiers` composites, `modifiersOrder` = modifier first. Keyboard modifiers: Shift,
+  Ctrl, Alt (left/right alike), up to two. **Gamepad combos too** (e.g. LB + A).
+- Single-button actions only: parts of axis composites (movement, Rotate Held Item, Vehicle throttle) take single
+  keys.
+- `InputSystem.settings.shortcutKeysConsumeInput` is on only while a combo exists, so Shift + R doesn't also fire R.
+- The modifier's own action still fires (sprinting while Shift is held is accepted).
+- **Consumption is global:** vanilla's actions are always enabled, so a combo in one context swallows its key in every
+  context while the modifier is held. The conflict check warns across all contexts. Later: context-aware combos.
+- Rebinding: hold a modifier and press a key for a combo; press and release a modifier alone to bind it.
+- `[SOURCE]` Unity `OneModifierComposite` / `TwoModifiersComposite`; vanilla's ToggleConsole (L3 + R3).
+
+**Rebinding**
+- Unity's `PerformInteractiveRebinding`, wrapped in `RebindGuard.Begin/End` (built): waits for every button to be
+  released before listening; UI clicks are blocked while listening; Escape cancels (no timeout, on either tab).
+
+**Derived actions** (vanilla's `RebindActionUI.m_DerivedActions`: keep other actions on the same key)
+- An action with **its own Core row is independent** (e.g. Handbrake no longer follows Jump). Actions without a row
+  keep following vanilla's derivation when their parent is rebound.
+
+**Conflicts**
+- Checked within a context; combos also against plain keys in all contexts (see Combos).
+- On a clash: **Replace** (clear the other slot), **Keep both**, or **Cancel**. Kept conflicts are **marked** on both
+  rows as possibly conflicting. Vanilla's swap-to-empty isn't used.
+
+**Order of work**
+1. Risk tests before UI: a manual C2 on Jump (hold both keys, release one: no stuck press), a second composite on
+   `VehicleDrive` (gamepad), a combo with `shortcutKeysConsumeInput`, Scroll Up/Down as button bindings.
+2. Bindings data: add, save, load, restore per context.
+3. Rows, slots, rebinding, conflicts, wrapping subtabs, section headers.
+4. Remove the Keybinds pointer line.
+
+### Input prompts (slice 4b) — designed
+- Core draws **all panel prompts** (bottom-left, centre, world) itself and keeps vanilla's prompt canvas hidden, only
+  once Core's mirror is running (fail soft).
+- No patches: Core follows `InputPromptsManager`'s public `onModuleLoaded` / `onModuleUnloaded` events, reads the
+  prompt with `GetInputPromptData(id)` (actions, label, colour), and draws it with Core's binding logic: slot 1, slot 2,
+  combos as `[Shift] + [R]`, from vanilla's key caps and pad pictures (`InputPrompts`, `GamepadGlyphs`).
+- `UpdateDisplayTextOverride` and `ShowHideActivePrompt` raise no event: checked only while a prompt is showing.
+  `[PERFORMANCE]` a dictionary read and an active check per shown prompt per frame; nothing when none are up.
+- Why: vanilla's panel prompts list every binding of the device (slot 2 shows), but show a combo's parts as separate
+  keys; its text prompts (`TryGetActionBindingDisplayString`) take the first binding; its embedded glyphs follow
+  vanilla's binding ID. Embedded glyphs and "Press {key}" texts are per context, covered later.
+- Look: from vanilla's `InputPromptsPanelUI`.
 
 ### How vanilla input works (research)
 - One `PlayerInput` in send-messages mode (`OnJump`, `OnCrouch`, ...); action names match
@@ -732,7 +828,8 @@ Each uses vanilla's own flow; nothing is patched.
   `ApplyInputSettings(ReadInputSettings())`, which fires `onInputsApplied`. Core uses the same path.
   `[SOURCE]` vanilla `Keybinder`.
 - Vanilla's `RebindActionUI` (Unity's Rebinding UI sample) **clears a conflicting key on every other
-  action**, ignoring contexts, and excludes mouse and gamepad. So **Core builds its own keybind rows**:
+  action** in its list, ignoring contexts, excludes the mouse, and has no cancel key (Escape gets bound). So **Core
+  builds its own keybind rows**:
   styled from vanilla's row via `UIBuilder`, rebinding with the same `PerformInteractiveRebinding`, with
   Core's per-context conflict check.
 - Input System is 1.4 or later (`OneModifierComposite` exists), so modifier combos use current names.
@@ -740,12 +837,11 @@ Each uses vanilla's own flow; nothing is patched.
   `GameInput`.
 
 ### What can be bound
-- **Vanilla actions:** any single input (keys, mouse buttons, gamepad buttons) through binding
-  overrides, saved the vanilla way. Combos on vanilla actions are a possible later feature: they change
-  an action's shape, and vanilla's handlers toggle pressed/released per callback.
-- **Suite actions:** Core's **own action map, built in code**. Single inputs now; modifier combos and
-  interactions (`press`, `hold`, `multiTap`) later. The registry stores path + modifiers + interaction
-  from day one, so adding them changes no file format.
+- **Vanilla actions:** any input, and modifier combos, as in "Keybinds (slice 4)". [CHANGED] Combos were a "later"
+  idea; slice 4 adds them as Core-added composites, which vanilla's press/release toggling sees as one button.
+- **Suite actions:** Core's **own action map, built in code**, shown in the same context subtabs. Combos as for vanilla
+  actions; interactions (`press`, `hold`, `multiTap`) later. Stored as path + modifiers + interaction from day one,
+  so adding them changes no file format.
 - **Suite keybinds:** Quick save **F5**, Quick load **F9**; stored in Core's settings, not PlayerPrefs.
 
 ---

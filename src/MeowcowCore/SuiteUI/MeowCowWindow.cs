@@ -377,6 +377,8 @@ public sealed class MeowcowWindow
     /// <remarks>
     /// [CHANGED] Was: inside the page, reversed (unselected shaded, selected clear). Outside the panel a clear
     /// tab would show the window's background instead of the panel's colour, so the left tabs' style is used.
+    /// [CHANGED] Bug fix (subtabs stopped responding to clicks): the Background is kept, invisible, instead of
+    /// switched off. It's the button's click target; without it the pointer had nothing to hit.
     /// </remarks>
     private void StyleSubtab(GameObject button)
     {
@@ -392,8 +394,15 @@ public sealed class MeowcowWindow
             toggle.graphic = image; // shown while selected, as vanilla
         }
 
-        Transform? background = button.transform.Find(UIPathIndex.TabBackground);
-        if (background != null) background.gameObject.SetActive(false);
+        // [CHANGED] Kept active but invisible: an Image at alpha 0 still receives raycasts, so the whole tab
+        // stays clickable with no visual change. [PERFORMANCE] One transparent Image per subtab, as before the
+        // previous change; set once at build.
+        Image? background = button.transform.Find(UIPathIndex.TabBackground)?.GetComponent<Image>();
+        if (background != null)
+        {
+            background.color = Color.clear;
+            background.raycastTarget = true;
+        }
     }
 
     /// <summary>Keeps a converted handler referenced for the window's lifetime (IL2CPP rule).</summary>

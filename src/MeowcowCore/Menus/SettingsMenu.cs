@@ -44,9 +44,6 @@ internal static class SettingsMenu
     private const float BackWidth = 140f;      // as the improved window's Back button
     private const string BackName = "Back";
 
-    // [TEMPORARY] Until R3/R4: shown on pages with vanilla settings still waiting for adapters.
-    private const string PendingText = "Vanilla settings arrive in the next update";
-
     /// <summary>As a page name: a Core setting (by key) rather than a vanilla row.</summary>
     private const string CoreSetting = "@core";
 
@@ -372,7 +369,6 @@ internal static class SettingsMenu
 
         var tabs = new Dictionary<string, WindowTab>(StringComparer.Ordinal);
         var pages = new Dictionary<string, WindowPage>(StringComparer.Ordinal);
-        var pending = new HashSet<WindowPage>();
 
         foreach (Placement placement in Layout)
         {
@@ -382,15 +378,15 @@ internal static class SettingsMenu
                 if (placement.Page == CoreSetting) AddCoreSetting(page, placement);
                 else if (placement.Page == Adapter) AddAdapterRow(page, placement.Row, settings, scan);
                 else if (placement.Page == Note) page.AddText(placement.Row);
-                else pending.Add(page); // [TEMPORARY] vanilla settings whose adapters come in R3/R4
+                // [CHANGED] Was the placeholder for adapters still to come (all built now): an unknown page
+                // kind is a layout-table mistake.
+                else Log.Warning($"Layout entry '{placement.Row}' has an unknown page kind '{placement.Page}'; skipped");
             }
             catch (Exception e)
             {
                 Log.Error($"Couldn't place '{placement.Row}'", e);
             }
         }
-
-        foreach (WindowPage page in pending) page.AddText(PendingText); // [TEMPORARY]
 
         Button? showVanilla = window.AddFooterButton("ShowVanilla", ShowVanillaLabel, ShowVanilla);
         // [CHANGED] The gamepad's Options button does the same, with its prompt beside the footer button.
@@ -704,9 +700,11 @@ internal static class SettingsMenu
             if (shown != gamepad)
             {
                 shown = gamepad;
-                GamepadGlyphs.Show(_vanillaOptionsGlyph, gamepad ? GamepadGlyphs.ButtonNorth : null); // [CHANGED] Y / Triangle
+                GamepadGlyphs.Show(_vanillaOptionsGlyph, gamepad ? WindowNavigator.OptionsPath() : null); // [CHANGED] the phone action's button
             }
-            if (gamepad && WindowNavigator.OptionsPressed())
+            // [CHANGED] OptionsPressed first: it polls RebindGuard every frame, so vanilla's rebinds are always seen.
+            // It only counts gamepad presses itself.
+            if (WindowNavigator.OptionsPressed() && gamepad)
             {
                 UIBuilder.RunSafely(ShowImproved, "Options button");
                 yield break;
