@@ -26,9 +26,6 @@ _Last updated: 2026-11-01 (Slice 4 designed)_
   LB/RB ±1, LT/RT ±10, Y/Triangle switches menus). Prompts via `SuiteUI/GamepadGlyphs.cs`.
 - **Description panel:** delayed hide (0.15 s) + 0.1 s fade.
 - **Keybinds labels:** "Keyboard/Gamepad Sprint Mode", "Keyboard/Gamepad Sneak Mode".
-
-## Done this session (not yet committed)
-
 - **Subtab clicks fixed** (`MeowCowWindow.StyleSubtab`): the tab's Background is kept at alpha 0 instead of
   switched off; it's the button's raycast target.
 - **CLAUDE.md** added at the repo root; decompiles live in `Decompiles/` (gitignored).
@@ -42,12 +39,21 @@ _Last updated: 2026-11-01 (Slice 4 designed)_
 - **Slice 4 and 4b designed** in `MeowcowCore-Design.md` §9 ("Keybinds (slice 4)", "Input prompts (slice 4b)").
   The temporary input dumps are removed.
 
+## Done this session (not yet committed)
+
+- **Slice 4 risk tests passed** (design §9 "Order of work" 1); the temporary test file is removed. Findings that
+  changed the design: Unity's `shortcutKeysConsumeInput` breaks vanilla (any composite outranks plain keys: the
+  unused `Rotate` swallowed E), so combos use **Core's targeted suppression, context-filtered**; contexts come from
+  `PlayerCamera.ActiveUIElements` names plus a few flags (design §9 "Active contexts").
+
 ---
 
 ## Next
 
-1. **Slice 4 — Keybinds** (design §9). Start with the risk tests in its "Order of work".
-2. **Slice 4b — Prompts** (design §9). Read `Decompiles/…InputPromptsPanelUI.cs` first.
+1. **Slice 4 — Keybinds** (design §9), part 2: bindings data (add, save, load, restore per context). New files to be
+   proposed first.
+2. **Slice 4b — Prompts** (design §9). Read `Decompiles/…InputPromptsPanelUI.cs` first. Check vanilla's driving
+   prompt: on gamepad it didn't show that the triggers drive (`VehicleDrive`); its module may list the wrong action.
 3. **Slice 5** — General › Commands.
 4. **Save system** — playthrough settings (Console, Seeded Mixing, …).
 
@@ -55,8 +61,6 @@ _Last updated: 2026-11-01 (Slice 4 designed)_
 
 - **UI navigation rework:** change how UI navigation works, especially in certain workstations. Needs each
   workstation looked at specifically (decompiles per station) before any design.
-- **Context-aware combos:** enable a context's combo bindings only while it's active (Building first:
-  `BuildStart_` / `BuildStop_`), so a combo stops swallowing its key elsewhere.
 - **Independent driving keys:** swap Motion's binding set while driving (binding mask on enter/exit vehicle), no
   Harmony. Needs an enter/exit hook and care for gamepad steering.
 - **Hotbar number keys 1–0 rebindable:** hard-coded in `PlayerInventory` (`Input.GetKeyDown`); would need a patch.

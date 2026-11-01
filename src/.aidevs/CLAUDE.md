@@ -61,6 +61,9 @@ Mark recent work in code so it can be reviewed:
 - Avoid naming types whose namespace is unverified (e.g. `EPlatformType`); compare values instead.
 - Use `TryCast<T>()` for Il2Cpp casts; don't use `?.` on Unity objects (it skips Unity's null check).
 - Vanilla typos must be matched exactly: `FOVSLider`, `IntefaceScaleSlider`.
+- Unity structs like `InputBinding` are **classes** under Il2CppInterop: `InputBinding?` is a nullable reference,
+  not a `Nullable<T>` (no `.HasValue` / `.Value`). Check it with **`is null` / `is not null`**: its own `==`/`!=`
+  operators go to native code and throw a NullReferenceException on null.
 
 ## Vanilla input notes
 

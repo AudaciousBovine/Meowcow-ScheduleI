@@ -775,12 +775,43 @@ is summarised in `STATUS.md`.
   Ctrl, Alt (left/right alike), up to two. **Gamepad combos too** (e.g. LB + A).
 - Single-button actions only: parts of axis composites (movement, Rotate Held Item, Vehicle throttle) take single
   keys.
-- `InputSystem.settings.shortcutKeysConsumeInput` is on only while a combo exists, so Shift + R doesn't also fire R.
+- **No double fire, by Core's own targeted suppression** (decided after the risk tests). While a combo's modifier is
+  held, Core disables the **victim** actions: those with a plain binding on the combo's key (Shift + F on Reload → the
+  F actions). Released modifier → victims enabled again. A victim already held when the modifier goes down is left
+  until released (no cut-off press, no stuck `GameInput` state), **then suppressed at once if the modifier is still
+  held** (otherwise it would double-fire until the next modifier press). Disabling doesn't re-resolve bindings.
+  Tested in game: Player combo (Shift + F on Reload suppresses Flashlight), Building combo (Shift + R on Build Rotate
+  Left suppresses Reload only in build mode), held victim left alone, Interaction context recognised.
+  `[PERFORMANCE]` modifier keys watched only while a combo exists; a few enable/disable calls per modifier change.
+- **Unity's `shortcutKeysConsumeInput` is not used:** it ranks every binding by part count, so any composite beats
+  plain keys on its keys. In the test, the unused `Rotate` composite (Q/E) swallowed E and Interact stopped working;
+  Motion (WASD) would likewise swallow Rotate Held Item (A/D).
 - The modifier's own action still fires (sprinting while Shift is held is accepted).
-- **Consumption is global:** vanilla's actions are always enabled, so a combo in one context swallows its key in every
-  context while the modifier is held. The conflict check warns across all contexts. Later: context-aware combos.
+- **Context-filtered:** built together with the context system below, so a combo and its suppression are active only
+  while its context is (a Building combo doesn't take R from Reload while walking).
 - Rebinding: hold a modifier and press a key for a combo; press and release a modifier alone to bind it.
 - `[SOURCE]` Unity `OneModifierComposite` / `TwoModifiersComposite`; vanilla's ToggleConsole (L3 + R3).
+
+**Active contexts** (for combos)
+- Read **only when a modifier goes down** (nothing per frame): a combo binding firing outside its context is harmless
+  (vanilla ignores e.g. Build Rotate while walking); only the suppression of victims must follow the context.
+  Entering a context while already holding the modifier applies on the next press.
+- Main signal: **`PlayerCamera.ActiveUIElements`**, a list of names that screens, stations and tasks add on open and
+  remove on close (`AddActiveUIElement`; `StationInterface<T>.OnOpen` adds its object's name). Several can be present
+  at once. One **name → context table** in Core (a one-line fix after a game update); unknown names logged once (debug).
+
+  | Context | Signal |
+  |---|---|
+  | Vehicle › Car / Skateboard | `Player.Local.IsInVehicle` / `Player.Local.IsSkating` |
+  | Building | `BuildManager.isBuilding`; `ManagementClipboard` (clipboard) |
+  | Interaction › Workstation | `ChemistryStationInterface`, `MixingStationInterface`, `DryingRackInterface`, `BrickPressInterface`, `LabOvenInterface`, `CauldronInterface`, `MushroomSpawnStationInterface`, `PackagingStation`, `LaunderingInterface`; grow tasks `Pour`, `Sow seed`, `Harvest plant`, `Mist`; `""` (empty: mushroom bed harvest/plant) |
+  | Interaction › Pickpocket / Police Search | `Pickpocket Screen` / `BodysearchScreen` (also `PickpocketScreen.IsOpen`, `BodySearchScreen.IsOpen`) |
+  | Phone | `GameplayMenu` (phone / character); also `Phone.IsOpen` |
+  | Menu | `Menu` (pause; also `PauseMenu.IsPaused`), `StorageMenu`, `DialogueCanvas`, `ATMInterface`, `NPCSummonMenu`, `RTBGame`, `Blackjack`, `View avatar` |
+  | none (no keybinds apply) | `Arrested`, `ArrestScreen`, `ArrestNoticeScreen`, `Dead`, `DeathScreen` |
+  | Player | none of the above |
+- `[SOURCE]` Vanilla `PlayerCamera`, `StationInterface<T>`, `Player`, `BuildManager`, `Phone`, `PauseMenu`; names logged
+  in game.
 
 **Rebinding**
 - Unity's `PerformInteractiveRebinding`, wrapped in `RebindGuard.Begin/End` (built): waits for every button to be
@@ -796,8 +827,9 @@ is summarised in `STATUS.md`.
   rows as possibly conflicting. Vanilla's swap-to-empty isn't used.
 
 **Order of work**
-1. Risk tests before UI: a manual C2 on Jump (hold both keys, release one: no stuck press), a second composite on
-   `VehicleDrive` (gamepad), a combo with `shortcutKeysConsumeInput`, Scroll Up/Down as button bindings.
+1. **Risk tests — done** (in game, temporary test removed): a second key on an action (Sprint on G: no stuck press);
+   a second composite on `VehicleDrive` (pad D-pad, triggers still work); Scroll Up/Down as button bindings (one press
+   per step); combos (consumption rejected, Core's suppression works, context-filtered); context signals.
 2. Bindings data: add, save, load, restore per context.
 3. Rows, slots, rebinding, conflicts, wrapping subtabs, section headers.
 4. Remove the Keybinds pointer line.
