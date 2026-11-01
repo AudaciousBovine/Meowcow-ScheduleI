@@ -704,7 +704,7 @@ internal static class SettingsMenu
             if (shown != gamepad)
             {
                 shown = gamepad;
-                GamepadGlyphs.Show(_vanillaOptionsGlyph, gamepad ? GamepadGlyphs.Select : null);
+                GamepadGlyphs.Show(_vanillaOptionsGlyph, gamepad ? GamepadGlyphs.ButtonNorth : null); // [CHANGED] Y / Triangle
             }
             if (gamepad && WindowNavigator.OptionsPressed())
             {

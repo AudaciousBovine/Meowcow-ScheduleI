@@ -616,9 +616,10 @@ the way `SettingRows` follows a Core setting's `Changed`.
   `InputPromptsManager`'s binding data per pad, Steam fallback): selected left tab: D-pad Up then Down left of
   the label in fixed slots (one hides at an end); Confirm right of the tab at tab control, Back in the
   options; selected subtab: D-pad Left/Right either side of the label; selected slider: "<< LT < LB  RB > RT
-  >>" under it. Tabs and subtabs are padded for the glyphs whatever the device. **Options button**
-  (Select/View/Share, left of Start, read from the pad) switches Improved ↔ Vanilla Settings, with its prompt
-  beside each menu's switch button.
+  >>" under it. Tabs and subtabs are padded for the glyphs whatever the device; the Confirm/Back glyph sits
+  inside the tab's right edge. **Menu switch: Y / Triangle** (the top face button, vanilla's phone button
+  by default; read from the pad) switches Improved ↔ Vanilla Settings, with its prompt beside each menu's
+  switch button. (Select was tried first, but vanilla has no picture for it.)
   Original plan: the D-pad moves over the left
   tabs and top subtabs; Confirm enters the page; Back returns to the tabs (and closes the window from
   there). Inside a page, vanilla's own navigation. On a slider, LB/RB move it 1 and LT/RT 10 (in its own

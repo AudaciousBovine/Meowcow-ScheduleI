@@ -518,7 +518,7 @@ internal sealed class WindowNavigator
     //    last tab, the other keeps its place); Confirm right of the tab at tab control, Back in the options;
     //  - selected subtab: D-pad Left and Right either side of its label (hidden at the ends);
     //  - selected slider: "<< LT < LB  RB > RT >>" centred under it;
-    //  - the Options button beside the window's OptionsAnchor (if it has one).
+    //  - the menu-switch button (Y / Triangle) beside the window's OptionsAnchor (if it has one).
     // [SOURCE] Glyphs: SuiteUI/GamepadGlyphs (vanilla's own prompt pictures). [PERFORMANCE] Updated on a
     // move, a level change or a device change, never per frame; each glyph is made once.
 
@@ -686,15 +686,22 @@ internal sealed class WindowNavigator
         if (anchor == null) return;
         _optionsGlyph ??= Place(GamepadGlyphs.Create(anchor, "GlyphOptions", MeowcowWindow.GlyphSize, style),
             0f, -MeowcowWindow.GlyphGap, 1f);
-        GamepadGlyphs.Show(_optionsGlyph, gamepad ? GamepadGlyphs.Select : null);
+        GamepadGlyphs.Show(_optionsGlyph, gamepad ? GamepadGlyphs.ButtonNorth : null);
     }
 
-    /// <summary>The gamepad's Options button (Select/View/Share, left of Start), pressed this frame.</summary>
-    /// <remarks>Read from the pad itself: vanilla binds no UI action to it.</remarks>
+    /// <summary>
+    /// The menu-switch button, pressed this frame: Y / Triangle (the top face button, vanilla's phone button
+    /// by default).
+    /// </summary>
+    /// <remarks>
+    /// [CHANGED] Was Select (left of Start), but vanilla has no picture for it, so its prompt couldn't show
+    /// (log: "No picture for '&lt;Gamepad&gt;/select'"). Read from the pad itself, so it's the default button
+    /// even if the phone is rebound; menus don't use it otherwise.
+    /// </remarks>
     internal static bool OptionsPressed()
     {
         var pad = UnityEngine.InputSystem.Gamepad.current;
-        return pad != null && pad.selectButton.wasPressedThisFrame;
+        return pad != null && pad.buttonNorth.wasPressedThisFrame;
     }
 
     // ---------- Vanilla's own input, kept out ----------

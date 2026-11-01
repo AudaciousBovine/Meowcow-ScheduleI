@@ -38,7 +38,9 @@ public static class GamepadGlyphs
     public const string RightShoulder = "<Gamepad>/rightShoulder";
     public const string LeftTrigger = "<Gamepad>/leftTrigger";
     public const string RightTrigger = "<Gamepad>/rightTrigger";
-    public const string Select = "<Gamepad>/select"; // View / Share / Select: left of Start
+    public const string Select = "<Gamepad>/select"; // View / Share / Select: left of Start (vanilla has no picture)
+    /// <summary>[CHANGED] Y on Xbox, Triangle on PlayStation: vanilla's phone button, which has pictures.</summary>
+    public const string ButtonNorth = "<Gamepad>/buttonNorth";
 
     private const string LabelName = "Label";
     private static readonly MeowcowLogger Log = CoreMod.Log.Tagged("Glyphs");

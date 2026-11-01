@@ -159,7 +159,7 @@ public sealed class MeowcowWindow
     internal UITab TabStrip => _tabStrip;
 
     /// <summary>
-    /// [CHANGED] What the gamepad's Options button (Select/View, left of Start) does in this window, if
+    /// [CHANGED] What the gamepad's menu-switch button (Y / Triangle) does in this window, if
     /// anything (the Improved Settings menu: switch to vanilla's). The navigator calls it.
     /// </summary>
     public Action? OptionsAction { get; set; }
