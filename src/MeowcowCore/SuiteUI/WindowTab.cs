@@ -27,7 +27,7 @@ namespace MeowcowCore.SuiteUI;
 public sealed class WindowTab
 {
     private const float PagePadding = 10f;
-    private const float StripHeight = 34f;    // same height as a tab
+    private const float StripHeight = 34f;    // same height as a tab (the row the window reserves above its panel)
     private const float SubtabWidth = 150f;
     private const float SubtabSpacing = 4f;
 
@@ -95,6 +95,22 @@ public sealed class WindowTab
         else ShowPage(index);
     }
 
+    // ---------- For the navigator ----------
+    // [CHANGED] New (window navigation slice).
+
+    /// <summary>How many pages (subtabs) this tab has.</summary>
+    internal int PageCount => _subtabs.Count;
+
+    /// <summary>The page showing, or null if there are none.</summary>
+    internal WindowPage? CurrentPage => SelectedPage >= 0 && SelectedPage < _subtabs.Count ? _subtabs[SelectedPage].Page : null;
+
+    /// <summary>A subtab's button, or null (no strip with one page).</summary>
+    internal GameObject? SubtabButton(int index) =>
+        index >= 0 && index < _subtabs.Count ? _subtabs[index].Toggle?.gameObject : null;
+
+    /// <summary>The subtab strip, or null with one page.</summary>
+    internal Il2CppScheduleOne.UIPanel? Strip => _strip;
+
     internal void SetVisible(bool visible)
     {
         View.SetActive(visible);
@@ -130,11 +146,8 @@ public sealed class WindowTab
                 _subtabs[i].Page.ClearDescription(); // [CHANGED] no stale description on return
                 Unregister(_subtabs[i].Page);
             }
-            if (_subtabs[i].Toggle != null)
-            {
-                _subtabs[i].Toggle!.interactable = i != index;
-                MeowcowWindow.SetSubtabSelected(_subtabs[i].Toggle!, i == index); // [CHANGED] reversed shading
-            }
+            // [CHANGED] The selected subtab's highlight is its toggle's own graphic now (styled like a left tab).
+            if (_subtabs[i].Toggle != null) _subtabs[i].Toggle!.interactable = i != index;
         }
 
         WindowPage page = shown;
@@ -198,8 +211,11 @@ public sealed class WindowTab
         GameObject strip = UObject.Instantiate(_window.Templates.Strip, View.transform); // inactive, like its template
         strip.name = "SubtabStrip";
         RectTransform rect = strip.GetComponent<RectTransform>();
-        MeowcowWindow.SetRect(rect, new Vector2(0f, 1f), Vector2.one,
-            new Vector2(PagePadding, -(PagePadding + StripHeight)), new Vector2(-PagePadding, -PagePadding));
+        // [CHANGED] Above the content panel, outside it (Evelyna: like the left tabs), in the row the window
+        // reserves: flush on the panel's top edge, so the selected subtab joins it. Still the tab's child, so it
+        // shows and hides with the tab.
+        _window.ReserveSubtabRow();
+        MeowcowWindow.SetRect(rect, new Vector2(0f, 1f), Vector2.one, Vector2.zero, new Vector2(0f, StripHeight));
 
         _strip = strip.GetComponent<UITab>();
 
@@ -248,12 +264,11 @@ public sealed class WindowTab
     }
 
     /// <summary>
-    /// Pages fill the tab, below the strip when there is one. [CHANGED] Flush under the strip (no gap), so
-    /// the selected subtab joins its page.
+    /// Pages fill the tab. [CHANGED] The strip is outside the panel now, so pages no longer leave room for it.
     /// </summary>
     private void LayOutPages()
     {
-        float top = PagePadding + (_strip != null ? StripHeight : 0f);
+        float top = PagePadding;
         foreach (Subtab subtab in _subtabs)
         {
             MeowcowWindow.SetRect(subtab.Page.Root.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,

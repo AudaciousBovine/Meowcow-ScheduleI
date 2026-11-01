@@ -126,20 +126,59 @@ public sealed class MeowcowWindow
         _tabsLayout = tabsLayout;
         _tabGroup = tabsLayout.GetComponent<ToggleGroup>();
         Templates = templates;
+        _navigator = new WindowNavigator(this); // [CHANGED] gamepad navigation (SuiteUI/WindowNavigator)
+        HideBumperPrompts();
+    }
+
+    private readonly WindowNavigator _navigator;
+
+    /// <summary>[CHANGED] The left tabs, for the navigator.</summary>
+    internal IReadOnlyList<WindowTab> Tabs => _tabs;
+
+    /// <summary>[CHANGED] The left tab strip, which the navigator keeps locked.</summary>
+    internal UITab TabStrip => _tabStrip;
+
+    /// <summary>
+    /// The LB/RB prompts beside the tabs go: the bumpers don't cycle tabs any more (they move sliders; the
+    /// D-pad reaches the tabs). Detached from the strip too, which would otherwise show them again.
+    /// </summary>
+    /// <remarks>[CHANGED] New (window navigation slice).</remarks>
+    private void HideBumperPrompts()
+    {
+        _tabStrip.cycleLeftVisual = null;
+        _tabStrip.cycleRightVisual = null;
+        foreach (string name in new[] { UIPathIndex.WindowLeftBumper, UIPathIndex.WindowRightBumper })
+        {
+            Transform? prompt = (_root ?? Screen.transform).Find(name);
+            if (prompt != null) prompt.gameObject.SetActive(false);
+        }
+    }
+
+    private bool _subtabRowReserved;
+
+    /// <summary>
+    /// Makes room above the content panel for a row of subtabs, outside it (as the left tabs sit outside
+    /// it): the content panel and the left tabs move down by a tab's height. Once per window, when its first
+    /// subtab strip is built, so windows without subtabs keep their space.
+    /// </summary>
+    /// <remarks>[CHANGED] New (Evelyna: subtabs outside the window, like the left tabs).</remarks>
+    internal void ReserveSubtabRow()
+    {
+        if (_subtabRowReserved) return;
+        _subtabRowReserved = true;
+        Content.offsetMax = new Vector2(Content.offsetMax.x, Content.offsetMax.y - TabHeight);
+        RectTransform? tabsPanel = _tabsLayout.parent?.TryCast<RectTransform>();
+        if (tabsPanel != null) tabsPanel.offsetMax = new Vector2(tabsPanel.offsetMax.x, tabsPanel.offsetMax.y - TabHeight);
     }
 
     internal WindowTemplates Templates { get; }
 
-    // [CHANGED] Tab colours: a selected left tab takes the content panel's colour so it blends into it;
-    // subtabs are shaded when unselected and clear when selected (see StyleSubtab).
+    // [CHANGED] Tab colours: a selected tab (left or subtab) takes the content panel's colour so it blends
+    // into it (see StyleSideTab, StyleSubtab).
     /// <summary>The content panel's colour: a selected left tab's colour.</summary>
     internal Color ContentColor => Content.GetComponent<Image>()?.color ?? Color.clear;
 
-    /// <summary>
-    /// Unselected subtabs: a darkening over the page, so they read as sitting outside it (the reverse of
-    /// vanilla, where the selected tab is the highlighted one).
-    /// </summary>
-    internal static readonly Color UnselectedSubtabShade = new(0f, 0f, 0f, 0.25f);
+    // [CHANGED] UnselectedSubtabShade removed: subtabs are styled like the left tabs now.
 
     /// <summary>Fired when the window closes, however it closed (Back, Escape, another screen opening).</summary>
     /// <remarks>[CHANGED] New: Meowcow Settings saves pending changes on close.</remarks>
@@ -293,43 +332,30 @@ public sealed class MeowcowWindow
     }
 
     /// <summary>
-    /// A subtab, reversed from vanilla: unselected ones are shaded, so they read as tabs outside the page;
-    /// the selected one is clear, so it shows the panel behind it and reads as part of the page. Vanilla's
-    /// highlight (shown when selected) is switched off, and the shading is set by the tab when the page
-    /// changes (<see cref="SetSubtabSelected"/>).
+    /// A subtab, now outside the content panel above it (as the left tabs sit outside it on the left): styled
+    /// like a left tab, with vanilla's own highlight shape (rounded top, flat bottom) unturned, so the selected
+    /// subtab is flat where it meets the panel below and coloured like it. Unselected ones are just their label.
     /// </summary>
     /// <remarks>
-    /// [CHANGED] Was: selected highlight recoloured. Vanilla's tab colours come from a colour transition
-    /// whose resting colour is transparent, so the shade never showed; the transition is off now.
+    /// [CHANGED] Was: inside the page, reversed (unselected shaded, selected clear). Outside the panel a clear
+    /// tab would show the window's background instead of the panel's colour, so the left tabs' style is used.
     /// </remarks>
-    private static void StyleSubtab(GameObject button)
+    private void StyleSubtab(GameObject button)
     {
         Toggle toggle = button.GetComponent<Toggle>();
         toggle.transition = Selectable.Transition.None;
 
-        Transform? mark = button.transform.Find(UIPathIndex.TabCheckmark);
+        RectTransform? mark = button.transform.Find(UIPathIndex.TabCheckmark)?.TryCast<RectTransform>();
         if (mark != null)
         {
-            toggle.graphic = null;
-            mark.gameObject.SetActive(false);
+            SetRect(mark, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero); // fills the tab
+            Image? image = mark.GetComponent<Image>();
+            if (image != null) image.color = ContentColor;
+            toggle.graphic = image; // shown while selected, as vanilla
         }
 
         Transform? background = button.transform.Find(UIPathIndex.TabBackground);
-        if (background == null) return;
-        background.gameObject.SetActive(true);
-        Image? shade = background.GetComponent<Image>();
-        if (shade != null)
-        {
-            shade.enabled = true;
-            shade.color = UnselectedSubtabShade;
-        }
-    }
-
-    /// <summary>Shades a subtab button (unselected) or clears it (selected).</summary>
-    internal static void SetSubtabSelected(Toggle button, bool selected)
-    {
-        Image? shade = button.transform.Find(UIPathIndex.TabBackground)?.GetComponent<Image>();
-        if (shade != null) shade.color = selected ? Color.clear : UnselectedSubtabShade;
+        if (background != null) background.gameObject.SetActive(false);
     }
 
     /// <summary>Keeps a converted handler referenced for the window's lifetime (IL2CPP rule).</summary>
@@ -1001,6 +1027,7 @@ public sealed class MeowcowWindow
             InputPrompts.Shown(_root ?? Screen.transform); // [CHANGED] key prompts (e.g. Back's) follow the device
             // Here as well as in Open(): the screen can also be opened by vanilla (e.g. returning to it).
             SelectTabStrip();
+            _navigator.Start(); // [CHANGED] gamepad navigation, while open
         }
         catch (Exception e)
         {
@@ -1013,6 +1040,7 @@ public sealed class MeowcowWindow
     {
         try
         {
+            _navigator.Stop(); // [CHANGED]
             InputPrompts.Hidden(_root ?? Screen.transform);
             // Only shown again if it was showing before, so a prompt vanilla hid stays hidden.
             if (_cornerPromptWasActive && _cornerPrompt != null) _cornerPrompt.SetActive(true);

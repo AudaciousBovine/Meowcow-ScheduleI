@@ -598,7 +598,12 @@ the way `SettingRows` follows a Core setting's `Changed`.
   vanilla's, labelled with vanilla's own text and spaced in rows of their own), Audio, Gamepad, Input (not
   bindings), both detection scans and the yellow footer line, and the Keybinds tab's pointer to vanilla's
   menu for bindings. Slider rows write their own value text (vanilla-bound rows have no Changed event).
-- **Window navigation** (after R2, in `MeowcowWindow`, so both windows get it): the D-pad moves over the left
+- **Window navigation — written, being tested** (`SuiteUI/WindowNavigator`, started and stopped with each
+  window, so both windows get it; gamepad only). The LB/RB prompts beside the tabs are gone (the bumpers
+  move sliders now); the tab strips are kept locked. **Subtabs sit above the content panel, outside it,
+  like the left tabs** (the window reserves a tab-high row once it has a subtab strip; the selected subtab
+  uses vanilla's highlight shape in the panel's colour, flat where it meets the panel).
+  Original plan: the D-pad moves over the left
   tabs and top subtabs; Confirm enters the page; Back returns to the tabs (and closes the window from
   there). Inside a page, vanilla's own navigation. On a slider, LB/RB move it 1 and LT/RT 10 (in its own
   units); the D-pad's left/right don't. LB/RB no longer cycle tabs. Inputs (probed in game): LB/RB =
