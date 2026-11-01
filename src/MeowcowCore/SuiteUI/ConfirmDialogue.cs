@@ -7,14 +7,17 @@ using MelonLoader;
 using MeowcowCore.Foundation;
 using UnityEngine;
 using UnityEngine.UI;
+using ActionBindingReference = Il2CppScheduleOne.CustomUI.ActionBindingReference;
+using EmbeddedInputPromptUI = Il2CppScheduleOne.UI.Input.EmbeddedInputPromptUI;
 using UIPanel = Il2CppScheduleOne.UIPanel;
+using UIScreenManager = Il2CppScheduleOne.UIScreenManager;
 using UObject = UnityEngine.Object;
 
 namespace MeowcowCore.SuiteUI;
 
 /// <summary>
-/// A "keep these changes?" box over a window, counting down to an automatic revert: Keep or Revert by mouse,
-/// Back (Escape/B) or the timer reverts, Submit (Enter/A) keeps. One open at a time.
+/// A "keep these changes?" box over a window, counting down to an automatic revert: Keep or Cancel by mouse;
+/// Confirm (Enter/A) keeps; Back (Escape/B) or the timer cancels. One open at a time.
 /// </summary>
 /// <remarks>
 /// [CHANGED] New (Settings rebuild R3), for display settings: vanilla's own revert dialog lives inside its
@@ -32,6 +35,7 @@ public static class ConfirmDialog
     private const float BoxHeight = 190f;
     private const float Padding = 20f;
     private const float ButtonHeight = 40f;
+    private const float ButtonWidth = 150f;   // [CHANGED] room for a prompt and a short label
     private const float ButtonGap = 20f;
     private const float TitleRatio = 0.6f;    // of the window title's font size
     private const float SubtitleRatio = 0.45f;
@@ -84,6 +88,7 @@ public static class ConfirmDialog
         _openedAt = Time.unscaledTime;
         holder.transform.SetAsLastSibling();
         holder.SetActive(true);
+        InputPrompts.Shown(holder.transform); // [CHANGED] the buttons' key caps follow the device
         LockGamepad(window);
 
         _exitListener ??= UIBuilder.ToIl2Cpp<GameInput.ExitDelegate>(new Action<ExitAction>(OnExit));
@@ -136,8 +141,10 @@ public static class ConfirmDialog
             new Vector2(0f, 1f), new Vector2(1f, 1f), -Padding - titleText.fontSize * 1.4f);
         _subtitle.color = new Color(1f, 1f, 1f, 0.8f);
 
-        AddButton(boxRect, "Keep", "Keep", OnKeepClicked, -(ButtonGap / 2f), rightAligned: true);
-        AddButton(boxRect, "Revert", "Revert", OnRevertClicked, ButtonGap / 2f, rightAligned: false);
+        // [CHANGED] Prompted buttons (Evelyna): Keep shows Confirm's button (A / Enter), Cancel shows Back's
+        // (B / Escape), so a gamepad sees how to answer. Built from the registry's Back button.
+        AddButton(boxRect, "Keep", "Keep", OnKeepClicked, -(ButtonGap / 2f), rightAligned: true, confirmPrompt: true);
+        AddButton(boxRect, "Cancel", "Cancel", OnRevertClicked, ButtonGap / 2f, rightAligned: false, confirmPrompt: false);
         return holder;
     }
 
@@ -162,18 +169,52 @@ public static class ConfirmDialog
         return label;
     }
 
-    /// <summary>A small button along the box's bottom, either side of its centre.</summary>
-    private static void AddButton(RectTransform box, string name, string label, Action onClick, float x, bool rightAligned)
+    /// <summary>
+    /// A prompted button along the box's bottom, either side of its centre: a copy of the registry's Back
+    /// button (its live prompt and key cap), relabelled; with <paramref name="confirmPrompt"/>, its prompt shows
+    /// vanilla's UI Confirm instead of Back.
+    /// </summary>
+    /// <remarks>[CHANGED] Was a plain small button with no prompt.</remarks>
+    private static void AddButton(RectTransform box, string name, string label, Action onClick, float x, bool rightAligned,
+        bool confirmPrompt)
     {
-        GameObject? go = UITemplateRegistry.Create(UITemplateRegistry.SmallButton, box, name);
-        if (go == null) return; // Back and Submit still work
-        float width = UITemplateRegistry.FitToLabel(go, label);
+        GameObject? go = UITemplateRegistry.Create(UITemplateRegistry.BackButton, box, name);
+        if (go == null) return; // Confirm and Back still work
+
+        Transform? prompt = go.transform.Find("Prompt");
+        foreach (TMP_Text text in go.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (prompt != null && text.transform.IsChildOf(prompt)) continue; // the prompt's own text
+            if (text.transform.parent != go.transform) continue;              // a key cap's text
+            text.text = label;
+            LayoutElement element = text.GetComponent<LayoutElement>() ?? text.gameObject.AddComponent<LayoutElement>();
+            element.preferredWidth = text.preferredWidth;
+            text.rectTransform.sizeDelta = new Vector2(text.preferredWidth, text.rectTransform.sizeDelta.y);
+            break;
+        }
+
+        if (confirmPrompt && prompt != null)
+        {
+            EmbeddedInputPromptUI? embedded = prompt.GetComponent<EmbeddedInputPromptUI>();
+            var submit = Singleton<UIScreenManager>.Instance?.SubmitInputAction;
+            if (embedded != null && submit != null)
+                embedded._actionBindingReference = new ActionBindingReference { ActionReference = submit, BindingId = string.Empty };
+        }
+
         RectTransform rect = go.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
         rect.pivot = new Vector2(rightAligned ? 1f : 0f, 0f);
-        rect.sizeDelta = new Vector2(width, ButtonHeight);
+        rect.sizeDelta = new Vector2(ButtonWidth, ButtonHeight);
         rect.anchoredPosition = new Vector2(x, Padding);
         UIBuilder.SetClick(go.GetComponent<Button>(), onClick);
+    }
+
+    /// <summary>Vanilla's UI Confirm (A / Enter), pressed this frame.</summary>
+    private static bool ConfirmPressed()
+    {
+        var manager = Singleton<UIScreenManager>.Instance;
+        var action = manager != null ? manager.SubmitInputAction?.action : null;
+        return action != null && action.WasPressedThisFrame();
     }
 
     // ---------- Running ----------
@@ -190,7 +231,8 @@ public static class ConfirmDialog
                 Close(revert: true);
                 yield break;
             }
-            if (Time.unscaledTime - _openedAt > SubmitGrace && GameInput.GetButtonDown(GameInput.ButtonCode.Submit))
+            // [CHANGED] Vanilla's UI Confirm (GameInput's Submit button never fires in menus).
+            if (Time.unscaledTime - _openedAt > SubmitGrace && ConfirmPressed())
             {
                 Close(revert: false);
                 yield break;
@@ -218,7 +260,11 @@ public static class ConfirmDialog
         _onKeep = null;
         _onRevert = null;
 
-        if (_open != null) _open.SetActive(false);
+        if (_open != null)
+        {
+            InputPrompts.Hidden(_open.transform);
+            _open.SetActive(false);
+        }
         _open = null;
         if (_exitListener != null) GameInput.DeregisterExitListener(_exitListener);
         UnlockGamepad();

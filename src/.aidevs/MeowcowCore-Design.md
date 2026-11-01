@@ -603,6 +603,15 @@ the way `SettingRows` follows a Core setting's `Changed`.
   move sliders now); the tab strips are kept locked. **Subtabs sit above the content panel, outside it,
   like the left tabs** (the window reserves a tab-high row once it has a subtab strip; the selected subtab
   uses vanilla's highlight shape in the panel's colour, flat where it meets the panel).
+  **Rewritten (Evelyna's scheme):** vanilla's gamepad system is detached from the window (no `uiScreen`,
+  no lobby attached), and Core drives the selection. Tab control: D-pad up/down cycles the left tabs,
+  left/right the subtabs; Confirm enters the options; Back closes the window. Options: D-pad up/down moves
+  rows (the page's own row list, in order; scrolled into view); Confirm flips a toggle, presses a button or
+  opens a dropdown; LB/RB ±1 and LT/RT ±10 on a slider; Back returns to tab control. Open dropdown: up/down
+  through its list, Confirm picks and closes, Back closes unchanged. Confirm is vanilla's UI Submit
+  (`UIScreenManager.SubmitInputAction`; GameInput's Submit never fires in menus). Vanilla's row scripts that
+  read the D-pad (`UIOption`) are switched off on window rows. The confirm dialog: Confirm keeps, Back
+  cancels, and its Keep/Cancel buttons show those prompts.
   Original plan: the D-pad moves over the left
   tabs and top subtabs; Confirm enters the page; Back returns to the tabs (and closes the window from
   there). Inside a page, vanilla's own navigation. On a slider, LB/RB move it 1 and LT/RT 10 (in its own

@@ -128,6 +128,14 @@ public sealed class MeowcowWindow
         Templates = templates;
         _navigator = new WindowNavigator(this); // [CHANGED] gamepad navigation (SuiteUI/WindowNavigator)
         HideBumperPrompts();
+
+        // [CHANGED] Vanilla's gamepad system is detached from the window: Core drives the selection itself.
+        // Left attached, vanilla's navigation wandered into the lobby panel (every menu screen attaches it) and
+        // lost the selection. With no UIScreen, MenuScreen.OnOpen adds nothing to vanilla's screen manager and
+        // attaches no lobby; Escape/Back still close the window through its exit listener.
+        screen.uiScreen = null;
+        screen.uiPanel = null;
+        screen.AttachLobbyToScreen = false;
     }
 
     private readonly WindowNavigator _navigator;
